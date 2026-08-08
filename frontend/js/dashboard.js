@@ -22,3 +22,6 @@ export async function loadDashboard(){
     <h2 style="margin:22px 0 10px">Alerts <span class="note">(${(al||[]).length})</span></h2>
     ${alertBlock}`;
 }
+
+// The nav handler in app.js calls loadDashboard() as a global; expose it.
+Object.assign(globalThis, { loadDashboard });
