@@ -38,11 +38,29 @@ export function setPin(lat,lon,edit){
   if(edit&&$('saveBtn'))$('saveBtn').disabled=false;
 }
 
+// Decode a Google-encoded polyline into [[lat,lng],...] (standalone; no Google JS needed).
+export function decodePolyline(str){
+  let index=0,lat=0,lng=0;const coords=[];
+  while(index<str.length){
+    let b,shift=0,result=0;
+    do{b=str.charCodeAt(index++)-63;result|=(b&0x1f)<<shift;shift+=5;}while(b>=0x20);
+    lat+=((result&1)?~(result>>1):(result>>1));
+    shift=0;result=0;
+    do{b=str.charCodeAt(index++)-63;result|=(b&0x1f)<<shift;shift+=5;}while(b>=0x20);
+    lng+=((result&1)?~(result>>1):(result>>1));
+    coords.push([lat/1e5,lng/1e5]);
+  }
+  return coords;
+}
+
 export async function openRouteMap(){
   if(!routeMap){routeMap=L.map('routemap').setView([school?school.latitude:27.578,school?school.longitude:75.137],11);
     addBaseLayer(routeMap);L.control.scale({imperial:false}).addTo(routeMap);}
   setTimeout(()=>routeMap.invalidateSize(),60);if(mapReady)return;
-  const data=await fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school');
+  const [data,{data:geo}]=await Promise.all([
+    fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
+    db.from('bus_route_geo').select('bus_id,road_km,encoded_polyline')]);
+  const geoBy={};(geo||[]).forEach(gr=>geoBy[gr.bus_id]=gr);
   const byBus={};data.forEach(s=>{if(s.latitude==null)return;(byBus[s.bus_id]=byBus[s.bus_id]||{stops:[],depot:s.bus_has_depot?[s.depot_lat,s.depot_lon]:null}).stops.push(s);});
   if(school)L.marker([school.latitude,school.longitude],{icon:L.divIcon({className:'',html:'<div style="font-size:22px">🏫</div>',iconSize:[22,22],iconAnchor:[11,11]}),zIndexOffset:1000}).addTo(routeMap).bindPopup('School');
   const leg=$('mapLegend');leg.innerHTML='';
@@ -55,7 +73,15 @@ export async function openRouteMap(){
   busIds.forEach(bus=>{const col=colorOf[bus]||'#666';const g=L.layerGroup().addTo(routeMap);const info=byBus[bus];
     const order=orderStops(info.stops,info.depot,school?[school.latitude,school.longitude]:null);
     const path=[];if(info.depot)path.push(info.depot);order.forEach(s=>path.push([s.latitude,s.longitude]));if(school)path.push([school.latitude,school.longitude]);
-    L.polyline(path,{color:col,weight:2.5,opacity:.8}).addTo(g);
+    const gj=geoBy[bus];
+    if(gj&&gj.encoded_polyline){
+      // Real road route from Google Directions (computed once, cached).
+      L.polyline(decodePolyline(gj.encoded_polyline),{color:col,weight:3.5,opacity:.85}).addTo(g);
+      info.roadKm=gj.road_km;
+    } else {
+      // No cached route yet — dashed straight line as a fallback.
+      L.polyline(path,{color:col,weight:2.5,opacity:.5,dashArray:'5 7'}).addTo(g);
+    }
     order.forEach((s,i)=>{
       const road = s.road_min_to_school!=null ? `${s.road_min_to_school} min · ${s.road_km_to_school} km by road to school`
                    : `${hav(s.latitude,s.longitude,school.latitude,school.longitude).toFixed(1)} km straight-line to school`;
@@ -73,7 +99,7 @@ export async function openRouteMap(){
     if(info.depot)L.marker(info.depot,{icon:L.divIcon({className:'',html:`<div style="width:11px;height:11px;background:${col};border:2px solid #fff;transform:rotate(45deg)"></div>`,iconSize:[13,13],iconAnchor:[6,6]})}).addTo(g).bindPopup('Bus '+bus+' depot');
     mapLayers[bus]=g;
     const row=document.createElement('label');row.className='legrow';
-    row.innerHTML=`<input type="checkbox" class="legchk" data-bus="${bus}" checked><span class="sw" style="background:${col}"></span>Bus ${bus}<span class="cnt">${info.stops.length}</span>`;
+    row.innerHTML=`<input type="checkbox" class="legchk" data-bus="${bus}" checked><span class="sw" style="background:${col}"></span>Bus ${bus}${info.roadKm?` · ${info.roadKm} km`:''}<span class="cnt">${info.stops.length}</span>`;
     leg.appendChild(row);
     row.querySelector('.legchk').onchange=e=>{e.stopPropagation();toggleBus(bus,e.target.checked);syncSelAll();};
     row.querySelector('.sw').onclick=e=>{e.preventDefault();isolate(bus);};});
@@ -98,4 +124,4 @@ export function fitMapChecked(){const all=[];checkedBuses.forEach(b=>{const g=ma
 
 export function fitMap(){const all=[];Object.values(mapLayers).forEach(g=>g.getLayers().forEach(l=>all.push(l)));if(all.length){const b=L.featureGroup(all).getBounds();if(b.isValid())routeMap.fitBounds(b.pad(.1));}}
 
-Object.assign(globalThis, { loadGoogle, attachGoogle, addBaseLayer, initEditMap, setPin, openRouteMap, toggleBus, syncSelAll, setCheckedBuses, isolate, fitMapChecked, fitMap });
+Object.assign(globalThis, { loadGoogle, attachGoogle, addBaseLayer, initEditMap, setPin, openRouteMap, decodePolyline, toggleBus, syncSelAll, setCheckedBuses, isolate, fitMapChecked, fitMap });
