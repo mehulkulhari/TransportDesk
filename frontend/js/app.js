@@ -133,7 +133,7 @@ $('loginBtn').onclick=async()=>{const b=$('loginBtn');b.disabled=true;$('gateMsg
   if(error){$('gateMsg').innerHTML='<span style="color:#b42318">'+esc(error.message)+'</span>';return;}start();};
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')$('loginBtn').click();});
 $('outBtn').onclick=async()=>{await db.auth.signOut();location.reload();};
-db.auth.getSession().then(({data})=>{if(data.session)start();});
+// Session resume is handled once by the DOMContentLoaded listener at the end of this file.
 
 
 document.querySelectorAll('nav button').forEach(btn=>btn.onclick=()=>{
@@ -1032,8 +1032,12 @@ globalThis.PLACES = {piprali:[27.610,75.146],'radha kishanpura':[27.60,75.16],na
                                                       
                                                                                                    
  
+// Only enter the app when a real session exists; otherwise the login gate stays
+// visible. (A previous build called start() unconditionally here, which showed
+// the app shell as the anon role — every data query then returned 0 rows.)
 window.addEventListener("DOMContentLoaded", async () => {
-    await start();
+    const { data } = await db.auth.getSession();
+    if (data.session) start();
 });
 
 Object.assign(globalThis, { $, CSV_HINTS, GOOGLE_MAPS_API_KEY, PLACES, QUESTIONS, SUPABASE_KEY, SUPABASE_URL, adReady, admap, adpin, allMaps, buses, checkedBuses, colorOf, csvKind, csvRows, current, db, esc, googleFailed, googleLayers, googleReady, map, mapLayers, mapReady, pin, repHeat, repHeatMode, repMap, repRoutePts, repStudentPts, routeMap, rs, rupee, school, stimer, ttimer });
