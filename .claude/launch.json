@@ -4,8 +4,8 @@
     {
       "name": "TransportDesk",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8000", "--directory", "frontend"],
-      "port": 8000
+      "runtimeArgs": ["-m", "http.server", "8010", "--directory", "frontend"],
+      "port": 8010
     }
   ]
 }
