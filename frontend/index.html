@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Transport Desk — Euro International School</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div id="gate"><div class="card">
+  <div class="rule"></div><h1>Transport Desk</h1>
+  <div class="sub">Sign in to manage students, pickup order and routes.</div>
+  <div class="field"><label>Work email</label><input id="em" type="email" autocomplete="username"/></div>
+  <div class="field"><label>Password</label><input id="pw" type="password" autocomplete="current-password"/></div>
+  <button class="b-primary" id="loginBtn" style="width:100%">Sign in</button>
+  <div id="gateMsg" class="note" style="margin-top:12px;min-height:18px"></div>
+</div></div>
+
+<div id="app">
+  <header>
+    <div class="brand">Transport<span>.</span>Desk</div>
+    <nav>
+      <button data-view="dash" class="on">Dashboard</button>
+      <button data-view="students">Students</button>
+      <button data-view="pickup">Pickup order</button>
+      <button data-view="temp">Temporary</button>
+      <button data-view="map">Route map</button>
+      <button data-view="admission">Admission</button>
+      <button data-view="buspage">Bus page</button>
+      <button data-view="opt">Optimization</button>
+      <button data-view="bulk">Bulk</button>
+      <button data-view="reports">Reports</button>
+      <button data-view="ask">Ask</button>
+    </nav>
+    <div class="who" id="whoami"></div>
+    <button class="b-ghost" id="outBtn" style="padding:6px 11px">Sign out</button>
+  </header>
+  <main>
+    <section class="view on" id="v-dash"><div class="pad" id="dashBody"><div class="hint">Loading dashboard…</div></div></section>
+
+    <section class="view split3" id="v-students">
+      <div class="listpane"><div class="searchbar"><label>Find a student</label><input id="q" placeholder="Name or SR number" autocomplete="off"/></div>
+        <div class="results" id="results"><div class="hint">Type a name or SR number.</div></div></div>
+      <div id="map"></div>
+      <div class="editor"><div class="hint" id="empty">Select a student to view their full profile and correct their details.</div><div id="form" style="display:none"></div></div>
+    </section>
+
+    <section class="view" id="v-pickup">
+      <div style="padding:11px 16px;border-bottom:1px solid var(--edge);background:#fff"><label>Choose a bus</label><div class="busbtns" id="pkBusBtns"></div></div>
+      <div style="padding:14px 16px" id="pkWrap"><div class="hint">Pick a bus to see and edit its pickup order.</div></div>
+    </section>
+
+    <section class="view split" id="v-temp">
+      <div class="listpane"><div class="searchbar"><label>Find a student</label><input id="tq" placeholder="Name or SR number" autocomplete="off"/></div>
+        <div class="results" id="tresults"><div class="hint">Search a student to set a temporary bus or address.</div></div></div>
+      <div class="work" style="overflow:auto"><div style="padding:16px" id="tform"><div class="hint">A temporary arrangement (e.g. staying at a relative's) applies only between the dates you set, then the permanent bus and address return on their own.</div></div></div>
+    </section>
+
+    <section class="view" id="v-map" style="position:relative">
+      <div id="routemap" style="position:absolute;inset:0"></div>
+      <div class="legend"><div class="hd">Buses</div><div class="body" id="mapLegend"></div></div>
+      <div class="mapctl"><button class="b-ghost" id="mapAll">All</button><button class="b-ghost" id="mapFit">Fit</button></div>
+    </section>
+
+    <section class="view" id="v-opt"><div class="pad" id="optBody"></div></section>
+    <section class="view" id="v-bulk"><div class="pad" id="bulkBody"></div></section>
+    <section class="view" id="v-reports"><div class="pad" id="reportsBody"></div></section>
+    <section class="view" id="v-admission" style="position:relative">
+      <div style="display:grid;grid-template-columns:360px 1fr;height:100%">
+        <div style="padding:16px;overflow:auto;border-right:1px solid var(--edge);background:#fff">
+          <h2 style="margin:0 0 4px">New admission</h2>
+          <div class="note" style="margin-bottom:12px">Click the map at the student's home, or paste coordinates, to see the best buses — walking distance to each route, seats left, and a recommendation. Then assign in one click.</div>
+          <div class="field"><label>Coordinates</label><input id="adCoord" placeholder="lat, lon (or click the map)"/></div>
+          <button class="b-signal" id="adGo" style="width:100%">Suggest buses</button>
+          <div id="adOut" style="margin-top:14px"></div>
+        </div>
+        <div id="admap" style="position:relative"></div>
+      </div>
+    </section>
+    <section class="view" id="v-buspage"><div class="pad" id="busPageBody"></div></section>
+    <section class="view" id="v-ask"><div class="pad" id="askBody"></div></section>
+  </main>
+</div>
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://unpkg.com/leaflet.gridlayer.googlemutant@0.13.4/dist/Leaflet.GoogleMutant.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
