@@ -20,7 +20,9 @@ export const SUPABASE_ANON_KEY = "sb_publishable_N4uceGsyAcLOUl_nDgzRbw_HhJCbcOZ
 // per-load cost).
 export const GOOGLE_MAPS_API_KEY = "";
 
-// Used ONLY for the occasional one-time route recompute (Directions API). Keep it
-// HTTP-referrer restricted to your site's domain in Google Cloud Console, and limited
-// to the Directions API. Rotate it since it was shared in chat.
-export const GOOGLE_DIRECTIONS_KEY = "AIzaSyA9tqHUw96KjrH1sdRxKTXs3Yl9ge3g2xk";
+// Normal use needs NO Google key: bus routes come from the cached results in
+// Supabase (bus_route_geo) drawn on OpenStreetMap. Left blank on purpose so this
+// PUBLIC repo ships no usable key. To recompute routes later (only if pickup orders
+// or addresses change), paste a referrer-restricted Directions key here temporarily,
+// run the recompute, then clear it again.
+export const GOOGLE_DIRECTIONS_KEY = "";
