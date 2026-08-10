@@ -53,40 +53,49 @@ export function decodePolyline(str){
   return coords;
 }
 
+globalThis.routeLines = {};        // per-bus real-road route polyline (toggled by "Pickup lines")
+globalThis.studentMarkers = [];    // {sr_no, name, lat, lon, bus, marker} for search
+globalThis.mapHeat = null;
+globalThis.pickupOn = true;
+
 export async function openRouteMap(){
   if(!routeMap){routeMap=L.map('routemap').setView([school?school.latitude:27.578,school?school.longitude:75.137],11);
     addBaseLayer(routeMap);L.control.scale({imperial:false}).addTo(routeMap);}
   setTimeout(()=>routeMap.invalidateSize(),60);if(mapReady)return;
   const [data,{data:geo}]=await Promise.all([
     fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
-    db.from('bus_route_geo').select('bus_id,road_km,encoded_polyline')]);
+    db.from('bus_route_geo').select('bus_id,road_km,duration_min,encoded_polyline')]);
   const geoBy={};(geo||[]).forEach(gr=>geoBy[gr.bus_id]=gr);
+  const capBy={};(buses||[]).forEach(b=>capBy[b.bus_id]=b.capacity);
   const byBus={};data.forEach(s=>{if(s.latitude==null)return;(byBus[s.bus_id]=byBus[s.bus_id]||{stops:[],depot:s.bus_has_depot?[s.depot_lat,s.depot_lon]:null}).stops.push(s);});
   if(school)L.marker([school.latitude,school.longitude],{icon:L.divIcon({className:'',html:'<div style="font-size:22px">🏫</div>',iconSize:[22,22],iconAnchor:[11,11]}),zIndexOffset:1000}).addTo(routeMap).bindPopup('School');
-  const leg=$('mapLegend');leg.innerHTML='';
+
   const busIds=Object.keys(byBus).sort((a,b)=>a-b);
   checkedBuses=new Set(busIds.map(String));
-  const ctrl=document.createElement('div');ctrl.style.cssText='display:flex;align-items:center;gap:10px;padding:4px 4px 8px;border-bottom:1px solid var(--edge);margin-bottom:6px;font-size:12px';
-  ctrl.innerHTML=`<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="mapSelAll" checked> Select all</label>
-    <a href="#" id="mapDesel" style="margin-left:auto">Deselect all</a>`;
-  leg.appendChild(ctrl);
+  studentMarkers.length=0;
+
+  // top-left stats
+  const totRoad=busIds.reduce((a,b)=>a+(geoBy[b]?Number(geoBy[b].road_km):0),0);
+  const kmVals=data.filter(s=>s.road_km_to_school!=null).map(s=>Number(s.road_km_to_school));
+  const avgKm=kmVals.length?(kmVals.reduce((a,b)=>a+b,0)/kmVals.length):0;
+  const statCell=(v,l)=>`<div style="padding:10px 16px;border-right:1px solid var(--edge)"><div style="font-size:20px;font-weight:700;line-height:1.1">${v}</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--slate)">${l}</div></div>`;
+  $('mapStats').innerHTML = statCell(data.length,'Students')+statCell(busIds.length,'Buses')+
+    statCell(avgKm.toFixed(1),'Avg km to school')+statCell(Math.round(totRoad),'Total road km').replace('border-right:1px solid var(--edge)','');
+
+  const leg=$('mapLegend');leg.innerHTML='';
   busIds.forEach(bus=>{const col=colorOf[bus]||'#666';const g=L.layerGroup().addTo(routeMap);const info=byBus[bus];
     const order=orderStops(info.stops,info.depot,school?[school.latitude,school.longitude]:null);
     const path=[];if(info.depot)path.push(info.depot);order.forEach(s=>path.push([s.latitude,s.longitude]));if(school)path.push([school.latitude,school.longitude]);
     const gj=geoBy[bus];
-    if(gj&&gj.encoded_polyline){
-      // Real road route from Google Directions (computed once, cached).
-      L.polyline(decodePolyline(gj.encoded_polyline),{color:col,weight:3.5,opacity:.85}).addTo(g);
-      info.roadKm=gj.road_km;
-    } else {
-      // No cached route yet — dashed straight line as a fallback.
-      L.polyline(path,{color:col,weight:2.5,opacity:.5,dashArray:'5 7'}).addTo(g);
-    }
+    const routeCoords=(gj&&gj.encoded_polyline)?decodePolyline(gj.encoded_polyline):path;  // real road when cached
+    if(gj){info.roadKm=gj.road_km;info.min=gj.duration_min;}
+    const rl=L.polyline(routeCoords,{color:col,weight:3,opacity:.82,interactive:false});
+    routeLines[bus]=rl; if(pickupOn) rl.addTo(routeMap);
     order.forEach((s,i)=>{
       const road = s.road_min_to_school!=null ? `${s.road_min_to_school} min · ${s.road_km_to_school} km by road to school`
                    : `${hav(s.latitude,s.longitude,school.latitude,school.longitude).toFixed(1)} km straight-line to school`;
-      const m=L.circleMarker([s.latitude,s.longitude],{radius:6,weight:1,color:'#fff',fillColor:col,fillOpacity:1});
-      m.bindPopup(`<b>${esc(s.student_name)}</b><br>Bus ${bus} · pickup #${i+1}<br><span class="mono">${esc(s.sr_no)}</span><br>${road}<br><a href="#" data-nearest="${s.latitude},${s.longitude}" data-bus="${bus}">Show this bus + 3 nearest ▾</a><div class="nearbox"></div>`);
+      const m=L.circleMarker([s.latitude,s.longitude],{radius:6,weight:1,color:'#1f2933',opacity:.85,fillColor:col,fillOpacity:.9});
+      m.bindPopup(`<b>${esc(s.student_name)}</b><br><span class="legdot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:4px"></span>Bus ${bus} · pickup #${i+1}<br><span class="mono">SR ${esc(s.sr_no)}</span><br>${road}<br><a href="#" data-nearest="${s.latitude},${s.longitude}" data-bus="${bus}">Show this bus + 3 nearest ▾</a><div class="nearbox"></div>`);
       m.on('popupopen',ev=>{const el=ev.popup.getElement().querySelector('a[data-nearest]');if(!el)return;
         el.onclick=async(e)=>{e.preventDefault();const [la,lo]=el.dataset.nearest.split(',').map(Number);const cur=el.dataset.bus;
           const box=ev.popup.getElement().querySelector('.nearbox');box.textContent='…';
@@ -95,28 +104,74 @@ export async function openRouteMap(){
           setCheckedBuses([Number(cur),...others.map(r=>r.bus_id)]);
           box.innerHTML=`<div style="margin-top:4px">Now showing 4 buses:</div>Bus ${cur} (current)<br>`+
             others.map(r=>`Bus ${r.bus_id} · ${r.detour_km} km detour · ${r.seats_left} seats${r.has_room?'':' (full)'}`).join('<br>');};});
-      m.addTo(g);});
-    if(info.depot)L.marker(info.depot,{icon:L.divIcon({className:'',html:`<div style="width:11px;height:11px;background:${col};border:2px solid #fff;transform:rotate(45deg)"></div>`,iconSize:[13,13],iconAnchor:[6,6]})}).addTo(g).bindPopup('Bus '+bus+' depot');
+      m.addTo(g);
+      studentMarkers.push({sr_no:String(s.sr_no),name:(s.student_name||'').toLowerCase(),display:s.student_name,lat:s.latitude,lon:s.longitude,bus,marker:m});
+    });
+    if(info.depot)L.marker(info.depot,{icon:L.divIcon({className:'',html:`<div style="width:12px;height:12px;background:${col};border:2px solid #fff;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`,iconSize:[14,14],iconAnchor:[7,7]})}).addTo(g).bindPopup('Bus '+bus+' — start point');
     mapLayers[bus]=g;
-    const row=document.createElement('label');row.className='legrow';
-    row.innerHTML=`<input type="checkbox" class="legchk" data-bus="${bus}" checked><span class="sw" style="background:${col}"></span>Bus ${bus}${info.roadKm?` · ${info.roadKm} km`:''}<span class="cnt">${info.stops.length}</span>`;
+    const riders=info.stops.length, cap=capBy[bus];
+    const cntColor = cap&&riders>cap?'#dc2626':(cap&&riders===cap?'#16a34a':'var(--slate)');
+    const diamond = info.depot?`<span title="custom start point" style="color:${col}">◆</span> `:'';
+    const row=document.createElement('div');row.className='legrow';row.dataset.bus=bus;row.style.flexWrap='wrap';
+    row.innerHTML=`<input type="checkbox" class="legchk" data-bus="${bus}" checked>
+      <span class="sw" style="background:${col};border-radius:50%"></span>
+      <span class="nm" style="flex:1;cursor:pointer">${diamond}Bus ${bus}</span>
+      <span class="cnt" style="color:${cntColor}${cntColor!=='var(--slate)'?';font-weight:600':''}">${riders}${cap?'/'+cap:''}</span>
+      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?info.roadKm+' km':'—'}${info.min?` · ~${info.min} min`:''} (with stops)</div>`;
     leg.appendChild(row);
-    row.querySelector('.legchk').onchange=e=>{e.stopPropagation();toggleBus(bus,e.target.checked);syncSelAll();};
-    row.querySelector('.sw').onclick=e=>{e.preventDefault();isolate(bus);};});
-  $('mapSelAll').onchange=e=>{const on=e.target.checked;busIds.forEach(b=>toggleBus(b,on));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=on);on&&fitMap();};
-  $('mapDesel').onclick=e=>{e.preventDefault();busIds.forEach(b=>toggleBus(b,false));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=false);$('mapSelAll').checked=false;};
+    row.querySelector('.legchk').onchange=e=>{e.stopPropagation();toggleBus(bus,e.target.checked);};
+    row.querySelector('.nm').onclick=e=>{e.preventDefault();isolate(bus);};});
+
   mapReady=true;
-  $('mapAll').onclick=()=>{busIds.forEach(b=>toggleBus(b,true));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=true);$('mapSelAll').checked=true;fitMap();};
-  $('mapFit').onclick=fitMapChecked;fitMap();
+  $('mapSelAllLink').onclick=e=>{e.preventDefault();busIds.forEach(b=>toggleBus(b,true));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=true);fitMap();};
+  $('mapDeselLink').onclick=e=>{e.preventDefault();busIds.forEach(b=>toggleBus(b,false));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=false);};
+  $('mapFit').onclick=fitMapChecked;
+  $('busFilter').oninput=e=>{const q=e.target.value.trim();[...leg.querySelectorAll('.legrow')].forEach(r=>{r.style.display=(!q||('bus '+r.dataset.bus).includes(q.toLowerCase())||r.dataset.bus===q)?'':'none';});};
+  $('legHide').onclick=e=>{e.preventDefault();const t=$('legTools');const hidden=t.style.display==='none';t.style.display=hidden?'':'none';e.target.textContent=hidden?'hide ▾':'show ▸';};
+  $('tglPickup').onclick=()=>togglePickupLines();
+  $('tglHeat').onclick=()=>toggleHeat(data);
+  $('mapStudentGo').onclick=()=>findStudentOnMap($('mapStudentSearch').value);
+  $('mapStudentSearch').onkeydown=e=>{if(e.key==='Enter')findStudentOnMap(e.target.value);};
+  fitMap();
 }
 
-export function toggleBus(bus,on){const g=mapLayers[bus];if(!g)return;if(on){routeMap.addLayer(g);checkedBuses.add(String(bus));}else{routeMap.removeLayer(g);checkedBuses.delete(String(bus));}}
+export function toggleBus(bus,on){const g=mapLayers[bus],rl=routeLines[bus];if(!g)return;
+  if(on){routeMap.addLayer(g);checkedBuses.add(String(bus));if(pickupOn&&rl)routeMap.addLayer(rl);}
+  else{routeMap.removeLayer(g);checkedBuses.delete(String(bus));if(rl)routeMap.removeLayer(rl);}}
 
-export function syncSelAll(){const sa=$('mapSelAll');if(sa)sa.checked=(checkedBuses.size===Object.keys(mapLayers).length);}
+export function togglePickupLines(){
+  pickupOn=!pickupOn;
+  const btn=$('tglPickup');if(btn)btn.textContent='Pickup lines: '+(pickupOn?'on':'off');
+  Object.keys(routeLines).forEach(b=>{const rl=routeLines[b];if(!rl)return;
+    if(pickupOn&&checkedBuses.has(String(b)))routeMap.addLayer(rl);else routeMap.removeLayer(rl);});
+}
+
+export function toggleHeat(data){
+  const btn=$('tglHeat');
+  if(mapHeat){routeMap.removeLayer(mapHeat);mapHeat=null;if(btn)btn.textContent='Heatmap: off';return;}
+  if(!L.heatLayer){toast&&toast('Heatmap library not loaded','bad');return;}
+  const pts=(data||[]).filter(s=>s.latitude!=null).map(s=>[s.latitude,s.longitude,0.6]);
+  mapHeat=L.heatLayer(pts,{radius:22,blur:18,maxZoom:15}).addTo(routeMap);
+  if(btn)btn.textContent='Heatmap: on';
+}
+
+export function findStudentOnMap(q){
+  q=(q||'').trim();const out=$('mapSearchOut');if(!q){out.innerHTML='';return;}
+  const ql=q.toLowerCase();
+  let hits=studentMarkers.filter(s=>s.sr_no===q);
+  if(!hits.length) hits=studentMarkers.filter(s=>s.sr_no.includes(q)||s.name.includes(ql));
+  if(!hits.length){out.innerHTML=`<div style="background:#fff;border:1px solid var(--edge);border-radius:6px;padding:6px 10px;font-size:13px">No student found for “${esc(q)}”.</div>`;return;}
+  const s=hits[0];
+  toggleBus(s.bus,true);const c=document.querySelector(`.legchk[data-bus="${s.bus}"]`);if(c)c.checked=true;
+  routeMap.setView([s.lat,s.lon],15);s.marker.openPopup();
+  out.innerHTML=`<div style="background:#fff;border:1px solid var(--edge);border-radius:6px;padding:6px 10px;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.12)">Showing <b>${esc(s.display||q)}</b> (SR ${esc(s.sr_no)}) on Bus ${s.bus}${hits.length>1?` · +${hits.length-1} more match`:''}</div>`;
+}
+
+export function syncSelAll(){/* Show all / Hide all are explicit links now */}
 
 export function setCheckedBuses(ids){const want=new Set(ids.map(String));
   Object.keys(mapLayers).forEach(b=>{const on=want.has(String(b));toggleBus(b,on);const c=document.querySelector(`.legchk[data-bus="${b}"]`);if(c)c.checked=on;});
-  syncSelAll();fitMapChecked();}
+  fitMapChecked();}
 
 export function isolate(bus){setCheckedBuses([bus]);}
 
@@ -124,4 +179,4 @@ export function fitMapChecked(){const all=[];checkedBuses.forEach(b=>{const g=ma
 
 export function fitMap(){const all=[];Object.values(mapLayers).forEach(g=>g.getLayers().forEach(l=>all.push(l)));if(all.length){const b=L.featureGroup(all).getBounds();if(b.isValid())routeMap.fitBounds(b.pad(.1));}}
 
-Object.assign(globalThis, { loadGoogle, attachGoogle, addBaseLayer, initEditMap, setPin, openRouteMap, decodePolyline, toggleBus, syncSelAll, setCheckedBuses, isolate, fitMapChecked, fitMap });
+Object.assign(globalThis, { loadGoogle, attachGoogle, addBaseLayer, initEditMap, setPin, openRouteMap, decodePolyline, toggleBus, togglePickupLines, toggleHeat, findStudentOnMap, syncSelAll, setCheckedBuses, isolate, fitMapChecked, fitMap });
