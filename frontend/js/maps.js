@@ -64,7 +64,7 @@ export async function openRouteMap(){
   setTimeout(()=>routeMap.invalidateSize(),60);if(mapReady)return;
   const [data,{data:geo}]=await Promise.all([
     fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
-    db.from('bus_route_geo').select('bus_id,road_km,duration_min,encoded_polyline')]);
+    db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline')]);
   const geoBy={};(geo||[]).forEach(gr=>geoBy[gr.bus_id]=gr);
   const capBy={};(buses||[]).forEach(b=>capBy[b.bus_id]=b.capacity);
   const byBus={};data.forEach(s=>{if(s.latitude==null)return;(byBus[s.bus_id]=byBus[s.bus_id]||{stops:[],depot:s.bus_has_depot?[s.depot_lat,s.depot_lon]:null}).stops.push(s);});
@@ -88,7 +88,7 @@ export async function openRouteMap(){
     const path=[];if(info.depot)path.push(info.depot);order.forEach(s=>path.push([s.latitude,s.longitude]));if(school)path.push([school.latitude,school.longitude]);
     const gj=geoBy[bus];
     const routeCoords=(gj&&gj.encoded_polyline)?decodePolyline(gj.encoded_polyline):path;  // real road when cached
-    if(gj){info.roadKm=gj.road_km;info.min=gj.duration_min;}
+    if(gj){info.roadKm=gj.road_km;info.min=gj.est_min||gj.duration_min;}
     const rl=L.polyline(routeCoords,{color:col,weight:3,opacity:.82,interactive:false});
     routeLines[bus]=rl; if(pickupOn) rl.addTo(routeMap);
     order.forEach((s,i)=>{
