@@ -64,10 +64,10 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, split, overlap, depot, merge, backtrack, fuel, meta] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
-    db.from('opt_route_split').select('*').gt('annual_fuel_if_split',0).order('annual_fuel_if_split',{ascending:false}),
+    db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
     db.from('opt_overlap').select('*').gte('shared_km',2).order('shared_km',{ascending:false}),
     db.from('opt_depot_swap').select('*').order('annual_fuel_saving',{ascending:false}),
     db.from('opt_merge').select('*').eq('mergeable',true).order('potential_annual_saving',{ascending:false}),
@@ -82,10 +82,13 @@ async function loadOptimizationData(){
   const sf = studentFix.data || [];
   const sfFeasible = sf.filter(r=>r.receiving_feasible);
   const sfTotal = sfFeasible.reduce((a,r)=>a+Number(r.net_annual_fuel||0),0);
+  const cst = cost.data || [];
+  const stuck = cst.filter(r=>!r.has_cheaper_bus);          // far AND can't be moved -> charge a fee
+  const stuckCost = stuck.reduce((a,r)=>a+Number(r.annual_fuel_cost||0),0);
 
   $('optCards').innerHTML = [
     card('Students to move', sfFeasible.length, rupee(sfTotal)+'/yr net'),
-    card('Stretched routes', (split.data||[]).length, rupee(m.route_split_fuel_gross)+'/yr gross'),
+    card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
     card('Corridor overlaps', (overlap.data||[]).length, 'buses sharing roads'),
     card('Depot swaps', (depot.data||[]).length, rupee((depot.data||[]).reduce((a,r)=>a+Number(r.annual_fuel_saving||0),0))+'/yr'),
     card('Retirable buses', m.retirable_buses, rupee(m.merge_fuel)+'/yr'),
@@ -101,13 +104,16 @@ async function loadOptimizationData(){
       studentFixTable(sf)
     ) +
     section(
-      'Stretched routes',
-      `Buses dragged far by a cluster of students. Figure is gross fuel if that whole group were served differently — an upper bound; use the simulator to test a specific split.`,
+      'What far students cost — fee guidance',
+      `The real extra fuel each far-flung student burns per year (their marginal road distance × 2 trips × 200 days ÷ mileage × ₹100/L). `+
+      `<b>Movable?</b> "no" = genuinely stuck far out → recover this as their transport fee (e.g. a ₹40k/yr student = ₹40k fee, or ~2 new admissions from that area). `+
+      `"yes" = a nearer bus can take them → move instead (see the top table).`,
       optTable([
-        {k:'bus_id',label:'Bus'},{k:'outlier_students',label:'Outliers'},
-        {k:'route_km_now',label:'Route km now',f:n1},{k:'route_km_without',label:'Without them',f:n1},
-        {k:'km_saved_per_trip',label:'Shrink/trip',f:n1},{k:'annual_fuel_if_split',label:'Gross /yr',f:rupee}
-      ], split.data||[], 'stretched_routes')
+        {k:'sr_no',label:'SR'},{k:'student_name',label:'Name'},{k:'bus_id',label:'Bus'},
+        {k:'km_to_school',label:'Km to school',f:n1},{k:'marginal_km',label:'Extra km/trip',f:n1},
+        {k:'annual_fuel_cost',label:'Costs school /yr',f:rupee},
+        {k:'has_cheaper_bus',label:'Movable?',f:v=>v?'yes — move':'no — charge fee'}
+      ], cst, 'far_student_cost')
     ) +
     section(
       'Corridor overlaps — two buses on the same road',
