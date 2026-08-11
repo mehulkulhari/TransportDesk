@@ -64,7 +64,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -73,7 +73,9 @@ async function loadOptimizationData(){
     db.from('opt_merge').select('*').eq('mergeable',true).order('potential_annual_saving',{ascending:false}),
     db.from('opt_backtrackers').select('*').order('annual_backtrack_fuel',{ascending:false}),
     db.from('report_fuel_summary').select('total_annual_fuel').single(),
-    db.from('opt_meta').select('refreshed_at').single()
+    db.from('opt_meta').select('refreshed_at').single(),
+    db.from('opt_rebalance_summary').select('*').maybeSingle(),
+    db.from('opt_rebalance_moves').select('*')
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -86,7 +88,10 @@ async function loadOptimizationData(){
   const stuck = cst.filter(r=>!r.has_cheaper_bus);          // far AND can't be moved -> charge a fee
   const stuckCost = stuck.reduce((a,r)=>a+Number(r.annual_fuel_cost||0),0);
 
+  const rb = rebalSum.data;
+
   $('optCards').innerHTML = [
+    rb&&rb.buses_freed>0 ? card('Retire buses', rb.buses_freed, rupee(rb.annual_fuel_saved)+'/yr fuel + drivers') : '',
     card('Students to move', sfFeasible.length, rupee(sfTotal)+'/yr net'),
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
     card('Corridor overlaps', (overlap.data||[]).length, 'buses sharing roads'),
@@ -96,7 +101,24 @@ async function loadOptimizationData(){
     card('Annual fuel', rupee(fuel.data?.total_annual_fuel||0))
   ].join('');
 
+  const rbMoves = rebalMoves.data || [];
+  const rbByBus = {};
+  rbMoves.forEach(m=>{(rbByBus[m.freed_bus]=rbByBus[m.freed_bus]||{n:0,cost:0}).n++; rbByBus[m.freed_bus].cost+=Number(m.insert_fuel||0);});
+  const rbRows = Object.keys(rbByBus).map(b=>({freed_bus:+b, students:rbByBus[b].n, absorb_cost:Math.round(rbByBus[b].cost)}))
+    .sort((a,b)=>a.freed_bus-b.freed_bus);
+
   $('optTables').innerHTML =
+    (rb&&rb.buses_freed>0 ? section(
+      '🚌 Fleet rebalance — buses you can retire',
+      `The big one. By chain-moving students to nearby buses that already have spare seats, these <b>${rb.buses_freed} buses can be retired entirely</b> — saving <b>${rupee(rb.annual_fuel_saved)}/yr in fuel</b> plus their drivers, maintenance and insurance (typically several lakh per bus). ${rb.students_moved} students move, and no receiving bus goes over capacity. Freed buses: <b>${esc(rb.freed_bus_ids)}</b>. Estimates use real cached distances; confirm a specific bus in the simulator before acting.`,
+      optTable([
+        {k:'freed_bus',label:'Retire bus'},{k:'students',label:'Students to move'},
+        {k:'absorb_cost',label:'Added fuel elsewhere /yr',f:rupee}
+      ], rbRows, 'fleet_rebalance')
+      + `<div style="margin-top:4px"><button class="b-ghost optcsv" data-t="rebalance_moves" style="font-size:12px">Download full move list (${rbMoves.length})</button></div>`
+      + `<table data-title="rebalance_moves" style="display:none"><tr><td>freed_bus</td><td>sr_no</td><td>student_name</td><td>from_bus</td><td>to_bus</td><td>insert_km</td><td>insert_fuel</td></tr>${
+          rbMoves.map(m=>`<tr><td>${m.freed_bus}</td><td>${esc(m.sr_no)}</td><td>${esc(m.student_name)}</td><td>${m.from_bus}</td><td>${m.to_bus}</td><td>${m.insert_km}</td><td>${m.insert_fuel}</td></tr>`).join('')}</table>`
+    ) : '') +
     section(
       'Students to move — the highest-value fixes',
       `Each row is one child whose bus makes a costly detour for them while another bus (with a free seat) already passes close. `+
