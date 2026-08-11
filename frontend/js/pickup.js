@@ -17,14 +17,47 @@ export async function loadPickup(bus){pkBus=bus;
   let cells='';for(let n=1;n<=maxPos;n++){const r=byPos[n];
     cells+=r?`<div class="seat" draggable="true" data-sr="${r.sr_no}" data-pos="${n}"><span class="n">${n}</span><span style="flex:1">${esc(r.student_name)} <span class="note mono">${esc(r.sr_no)}</span></span></div>`
             :`<div class="seat empty" data-pos="${n}"><span class="n">${n}</span><span>empty — drop here</span></div>`;}
-  $('pkWrap').innerHTML=`<div style="display:flex;align-items:center;margin-bottom:8px">
+  $('pkWrap').innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <div class="pill"><b>Bus ${bus}</b><span>bus</span></div><div class="pill"><b>${ordered.length}/${pkRows.length}</b><span>ordered</span></div>
       <div class="pill"><b>${cap||'?'}</b><span>seats</span></div>
-      <div class="note" style="margin-left:auto">This is the order students are picked up along the route. Drag to swap positions.</div></div>
+      <button class="b-primary" id="pkAdd" style="margin-left:auto;padding:6px 11px">+ Add student to this bus</button></div>
+    <div class="note" style="margin:0 0 8px">This is the order students are picked up along the route. Drag to swap positions.</div>
+    <div id="pkAddBox" style="display:none;background:#fff;border:1px solid var(--edge);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+      <label>Find a student to move onto Bus ${bus} (takes the next free seat)</label>
+      <input id="pkAddIn" placeholder="name or SR number" autocomplete="off" style="width:100%;padding:6px 9px;border:1px solid var(--edge);border-radius:5px;margin-top:4px"/>
+      <div id="pkAddRes" class="results" style="max-height:220px;margin-top:6px"></div>
+    </div>
     <div class="seatgrid">${cells}</div>
     ${unset.length?`<h3 style="margin:18px 0 6px;font-size:14px">Not yet in the pickup order — drag onto a position</h3>
       <div class="seatgrid">${unset.map(r=>`<div class="seat" draggable="true" data-sr="${r.sr_no}" data-pos=""><span class="n">–</span><span style="flex:1">${esc(r.student_name)} <span class="note mono">${esc(r.sr_no)}</span></span></div>`).join('')}</div>`:''}`;
   wirePkDrag();
+  let addTimer;
+  $('pkAdd').onclick=()=>{const box=$('pkAddBox');const show=box.style.display==='none';box.style.display=show?'block':'none';if(show)$('pkAddIn').focus();};
+  $('pkAddIn').oninput=e=>{clearTimeout(addTimer);addTimer=setTimeout(()=>pkSearchAdd(e.target.value),220);};
+}
+
+async function pkSearchAdd(term){term=(term||'').trim();
+  if(term.length<2){$('pkAddRes').innerHTML='<div class="hint">Type a name or SR number.</div>';return;}
+  const {data,error}=await db.from('student_effective')
+    .select('id,sr_no,student_name,bus_id').or(`student_name.ilike.%${term}%,sr_no.ilike.%${term}%`).limit(20);
+  if(error){$('pkAddRes').innerHTML='<div class="hint">'+esc(error.message)+'</div>';return;}
+  const rows=(data||[]).filter(s=>String(s.bus_id)!==String(pkBus));
+  if(!rows.length){$('pkAddRes').innerHTML='<div class="hint">No other-bus student matches.</div>';return;}
+  $('pkAddRes').innerHTML=rows.map(s=>`<div class="item" data-id="${s.id}" data-name="${esc(s.student_name)}">
+    <span class="nm">${esc(s.student_name)}</span><span class="sr mono">${esc(s.sr_no)}</span><span class="bs">now Bus ${esc(s.bus_id??'—')}</span></div>`).join('');
+  [...$('pkAddRes').querySelectorAll('.item')].forEach(el=>el.onclick=()=>pkAssign(el.dataset.id,el.dataset.name));
+}
+
+async function pkAssign(id,name){
+  // next free pickup position on this bus (1..)
+  const used=new Set(pkRows.filter(r=>r.pickup_order).map(r=>r.pickup_order));
+  let pos=1; while(used.has(pos)) pos++;
+  const cap=pkRows[0]?.capacity||0;
+  if(cap && pkRows.length>=cap && !confirm(`Bus ${pkBus} is at capacity (${pkRows.length}/${cap}). Add ${name} anyway?`)) return;
+  const {error}=await db.from('students').update({bus_no:pkBus,pickup_order:pos}).eq('id',id);
+  if(error){toast(error.message.includes('uniq_bus_pickup')?`Seat ${pos} already taken — try again`:error.message,'bad');return;}
+  toast(`${name} added to Bus ${pkBus} at seat ${pos}`,'good');
+  loadPickup(pkBus);
 }
 function wirePkDrag(){document.querySelectorAll('#v-pickup .seat').forEach(el=>{
   el.addEventListener('dragstart',()=>{dragSr=el.dataset.sr;el.classList.add('drag');});

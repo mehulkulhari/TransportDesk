@@ -115,6 +115,12 @@ async function loadOptimizationData(){
         {k:'freed_bus',label:'Retire bus'},{k:'students',label:'Students to move'},
         {k:'absorb_cost',label:'Added fuel elsewhere /yr',f:rupee}
       ], rbRows, 'fleet_rebalance')
+      + `<div style="margin-top:8px;background:#fff;border:1px solid var(--edge);border-radius:6px;padding:8px 10px;font-size:13px">
+          Operating cost per retired bus /yr (driver + maintenance + insurance):
+          <input id="rbOpCost" value="400000" autocomplete="off" style="width:120px;padding:3px 6px;border:1px solid var(--edge);border-radius:4px"/>
+          → <b>True total saving: <span id="rbTotal">—</span>/yr</b>
+          <div class="note" style="margin-top:3px">= ${rupee(rb.annual_fuel_saved)} fuel + ${rb.buses_freed} buses × operating cost. Set your school's real per-bus figure.</div>
+        </div>`
       + `<div style="margin-top:4px"><button class="b-ghost optcsv" data-t="rebalance_moves" style="font-size:12px">Download full move list (${rbMoves.length})</button></div>`
       + `<table data-title="rebalance_moves" style="display:none"><tr><td>freed_bus</td><td>sr_no</td><td>student_name</td><td>from_bus</td><td>to_bus</td><td>insert_km</td><td>insert_fuel</td></tr>${
           rbMoves.map(m=>`<tr><td>${m.freed_bus}</td><td>${esc(m.sr_no)}</td><td>${esc(m.student_name)}</td><td>${m.from_bus}</td><td>${m.to_bus}</td><td>${m.insert_km}</td><td>${m.insert_fuel}</td></tr>`).join('')}</table>`
@@ -134,7 +140,8 @@ async function loadOptimizationData(){
         {k:'sr_no',label:'SR'},{k:'student_name',label:'Name'},{k:'bus_id',label:'Bus'},
         {k:'km_to_school',label:'Km to school',f:n1},{k:'marginal_km',label:'Extra km/trip',f:n1},
         {k:'annual_fuel_cost',label:'Costs school /yr',f:rupee},
-        {k:'has_cheaper_bus',label:'Movable?',f:v=>v?'yes — move':'no — charge fee'}
+        {k:'has_cheaper_bus',label:'Movable?',f:v=>v?'yes — move':'no — charge fee'},
+        {label:'',cell:r=>mapBtn(r.sr_no, r.bus_id)}
       ], cst, 'far_student_cost')
     ) +
     section(
@@ -170,9 +177,16 @@ async function loadOptimizationData(){
       optTable([
         {k:'sr_no',label:'SR'},{k:'student_name',label:'Name'},{k:'bus_id',label:'Bus'},
         {k:'km_from_cluster',label:'From cluster km',f:n1},{k:'km_to_school',label:'To school km',f:n1},
-        {k:'annual_backtrack_fuel',label:'Annual fuel',f:rupee}
+        {k:'annual_backtrack_fuel',label:'Annual fuel',f:rupee},
+        {label:'',cell:r=>mapBtn(r.sr_no, r.bus_id)}
       ], (backtrack.data||[]).slice(0,80), 'backtrackers')
     );
+
+  if(rb && rb.buses_freed>0 && $('rbOpCost')){
+    const upd=()=>{const op=parseFloat($('rbOpCost').value)||0;
+      $('rbTotal').textContent=rupee(Number(rb.annual_fuel_saved)+rb.buses_freed*op);};
+    $('rbOpCost').oninput=upd; upd();
+  }
 
   const stamp = meta.data?.refreshed_at ? new Date(meta.data.refreshed_at).toLocaleString() : 'unknown';
   $('optStamp').textContent = 'Last calculated: ' + stamp;
@@ -194,7 +208,7 @@ function studentFixTable(rows){
     <td style="padding:6px 8px">${n1(r.net_km_trip)} km</td>
     <td style="padding:6px 8px;font-weight:600">${rupee(r.net_annual_fuel)}</td>
     <td style="padding:6px 8px">${r.receiving_feasible?'<span style="color:#087443">yes</span>':'<span style="color:#b42318">full</span>'}</td>
-    <td style="padding:6px 8px"><button class="b-ghost simrow" data-mv="${esc(r.sr_no)} ${esc(r.best_bus)}" style="font-size:12px;padding:3px 8px">Test</button></td>
+    <td style="padding:6px 8px;white-space:nowrap"><button class="b-ghost simrow" data-mv="${esc(r.sr_no)} ${esc(r.best_bus)}" style="font-size:12px;padding:3px 8px">Test</button> ${mapBtn(r.sr_no, r.own_bus+','+r.best_bus)}</td>
   </tr>`).join('');
   return `<div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto">
     <table data-title="students_to_move" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
@@ -208,6 +222,8 @@ function wireRowButtons(){
     $('simOut').scrollIntoView({behavior:'smooth',block:'center'});
   });
   document.querySelectorAll('.optcsv').forEach(b=>b.onclick=()=>downloadOptCsv(b.dataset.t));
+  document.querySelectorAll('.mapbtn').forEach(b=>b.onclick=()=>
+    showSuggestionOnMap(b.dataset.sr, (b.dataset.buses||'').split(',').filter(Boolean).map(Number)));
 }
 
 /* ---------- generic table ---------- */
@@ -215,7 +231,7 @@ function optTable(cols, rows, title){
   if(!rows.length) return `<div class="note">None found.</div>`;
   const head = cols.map(c=>`<th style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--edge);white-space:nowrap">${esc(c.label)}</th>`).join('');
   const body = rows.slice(0,80).map(r=>`<tr style="border-bottom:1px solid var(--edge)">${
-    cols.map(c=>`<td style="padding:6px 8px">${esc(c.f?c.f(r[c.k]):r[c.k])}</td>`).join('')
+    cols.map(c=>`<td style="padding:6px 8px">${c.cell?c.cell(r):esc(c.f?c.f(r[c.k]):r[c.k])}</td>`).join('')
   }</tr>`).join('');
   return `<div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto">
     <table data-title="${esc(title)}" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
@@ -223,6 +239,18 @@ function optTable(cols, rows, title){
 }
 
 const csvBtn = t => `<div style="margin:6px 0 2px"><button class="b-ghost optcsv" data-t="${esc(t)}" style="font-size:12px">Download CSV</button></div>`;
+
+// "Map" button that opens this suggestion live on the Route map (student + its buses)
+const mapBtn = (sr, buses) => `<button class="b-ghost mapbtn" data-sr="${esc(sr)}" data-buses="${esc(buses)}" style="font-size:12px;padding:3px 8px">Map</button>`;
+
+async function showSuggestionOnMap(sr, buses){
+  const nav=[...document.querySelectorAll('nav button')].find(b=>b.dataset.view==='map');
+  if(nav) nav.click();                                   // switch to Route map (runs openRouteMap)
+  for(let i=0;i<80 && !(globalThis.studentMarkers && studentMarkers.length); i++)
+    await new Promise(r=>setTimeout(r,150));              // wait for the map data to load
+  if(buses && buses.length && globalThis.setCheckedBuses) setCheckedBuses(buses);
+  if(sr && globalThis.findStudentOnMap) findStudentOnMap(String(sr));
+}
 
 function section(title, note, tableHtml){
   return `<div style="margin-bottom:22px">
@@ -335,11 +363,11 @@ export function downloadOptCsv(title){
   const tbl = document.querySelector(`table[data-title="${title}"]`);
   if(!tbl) return;
   const rows = [...tbl.querySelectorAll('tr')].map(tr=>[...tr.children]
-    .filter(td=>td.textContent.trim()!=='Test')
+    .filter(td=>!['Test','Map','Test Map'].includes(td.textContent.trim()))
     .map(td=>`"${td.textContent.replace(/"/g,'""').trim()}"`).join(','));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
   a.download = title+'.csv'; a.click();
 }
 
-Object.assign(globalThis, { renderOptimization, downloadOptCsv });
+Object.assign(globalThis, { renderOptimization, downloadOptCsv, showSuggestionOnMap });

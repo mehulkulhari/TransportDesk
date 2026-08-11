@@ -67,14 +67,28 @@ export async function openStudent(id){
     </div>
     <div class="field" style="margin-top:12px"><label>Why the change (optional)</label><input id="noteIn" placeholder="e.g. shifted house"/></div>
     <div class="actions"><button class="b-primary" id="saveBtn" disabled>Save changes</button>
-      <button class="b-ghost" id="resetBtn">Undo pin</button><span class="note" id="lastEdit">${data.updated_by?('Last edited by '+esc(data.updated_by)):''}</span></div>
+      <button class="b-ghost" id="resetBtn">Undo pin</button>
+      <button class="b-ghost" id="leftBtn" style="color:#b42318;border-color:#e7b7b1;margin-left:auto">Student left school</button>
+      <span class="note" id="lastEdit">${data.updated_by?('Last edited by '+esc(data.updated_by)):''}</span></div>
     <details><summary>Change history &amp; undo</summary><div id="hist" class="note" style="margin-top:8px">Loading…</div></details>`;
   setPin(+data.latitude,+data.longitude,false);map.setView([+data.latitude,+data.longitude],16);$('saveBtn').disabled=true;
   ['busSel','pkIn','parIn','phIn'].forEach(idf=>$(idf).oninput=$(idf).onchange=()=>$('saveBtn').disabled=false);
   $('selfTransport').onchange=()=>$('saveBtn').disabled=false;
   $('saveBtn').onclick=saveStudent;
   $('resetBtn').onclick=()=>{setPin(+data.latitude,+data.longitude,false);$('saveBtn').disabled=true;};
+  $('leftBtn').onclick=removeStudent;
   loadHistory(data.id);
+}
+
+export async function removeStudent(){
+  if(!current) return;
+  if(!confirm(`Remove ${current.student_name} (SR ${current.sr_no}) from the school?\n\nThey will be taken off all buses, rosters and optimization. This is reversible (re-activate later if they return).`)) return;
+  const {error}=await db.from('students').update({active:false}).eq('id',current.id);
+  if(error){toast(error.message,'bad');return;}
+  toast(current.student_name+' removed — left school','good');
+  current=null;$('form').style.display='none';$('empty').style.display='block';
+  if(pin){try{map.removeLayer(pin);}catch(e){}pin=undefined;}
+  searchStudents($('q').value);loadDashboard();
 }
 
 export async function saveStudent(){
@@ -106,4 +120,4 @@ export async function loadHistory(id){
     if(error){toast(error.message,'bad');return;}toast('Change reverted','good');openStudent(id);});
 }
 
-Object.assign(globalThis, { searchStudents, renderList, openStudent, saveStudent, loadHistory });
+Object.assign(globalThis, { searchStudents, renderList, openStudent, saveStudent, loadHistory, removeStudent });
