@@ -67,7 +67,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -82,7 +82,9 @@ async function loadOptimizationData(){
     db.from('opt_task_status').select('*'),
     db.from('report_deadrun_full').select('*').order('annual_dead_fuel',{ascending:false}),
     db.from('opt_fleet_assign').select('*').order('annual_saving',{ascending:false}),
-    db.from('opt_fleet_assign_summary').select('*').maybeSingle()
+    db.from('opt_fleet_assign_summary').select('*').maybeSingle(),
+    db.from('opt_consolidation_summary').select('*').maybeSingle(),
+    db.from('opt_consolidation_plan').select('*')
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -102,10 +104,13 @@ async function loadOptimizationData(){
   const rb = rebalSum.data;
   const fleetMoves = (fleetAssign.data||[]).filter(r=>r.suggested_vehicle!==r.bus_id);
   const fleetSaving = Number(fleetSum.data?.annual_saving||0);
+  const cs = consSum.data;
+  const cplan = consPlan.data || [];
 
   $('optCards').innerHTML = [
+    cs&&cs.buses_freed>0 ? card('Consolidate fleet', '59→'+(59-cs.buses_freed), '−'+cs.buses_freed+' buses · '+rupee(cs.fuel_saved)+' fuel + drivers') : '',
     fleetSaving>0 ? card('Vehicle swaps', fleetMoves.length, rupee(fleetSaving)+'/yr fuel') : '',
-    rb&&rb.buses_freed>0 ? card('Retire buses', rb.buses_freed, rupee(rb.annual_fuel_saved)+'/yr fuel + drivers') : '',
+    rb&&rb.buses_freed>0 ? card('Retire buses (tight)', rb.buses_freed, rupee(rb.annual_fuel_saved)+'/yr fuel + drivers') : '',
     card('Students to move', sfFeasible.length, rupee(sfTotal)+'/yr net'),
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
     card('Corridor overlaps', (overlap.data||[]).length, 'buses sharing roads'),
@@ -122,6 +127,7 @@ async function loadOptimizationData(){
     .sort((a,b)=>a.freed_bus-b.freed_bus);
 
   $('optTables').innerHTML =
+    (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan) : '') +
     (fleetMoves.length ? section(
       '🔧 Vehicle reassignment — put efficient buses on the long routes',
       `Your buses range from <b>3 to 17 km/L</b>, but the current assignment ignores mileage — several long routes run on the thirstiest engines. `+
@@ -205,16 +211,6 @@ async function loadOptimizationData(){
       ], (deadrun.data||[]).filter(r=>Number(r.annual_savings_if_close||0)>0).slice(0,40), 'start_points')
     ) +
     section(
-      'Consolidation candidates',
-      `Bus pairs that could merge — one absorbs the other, retiring a vehicle (driver + upkeep on top of the fuel shown).`,
-      optTable([
-        {k:'bus_a',label:'Bus A'},{k:'bus_b',label:'Bus B'},{k:'combined',label:'Combined riders'},
-        {k:'best_capacity',label:'Capacity'},{k:'bus_to_retire',label:'Retire'},
-        {k:'potential_annual_saving',label:'Fuel save /yr',f:rupee},
-        {label:'Status',cell:r=>statusCell('consolidation', r.bus_a+'-'+r.bus_b)}
-      ], merge.data||[], 'consolidation')
-    ) +
-    section(
       'Backtracker students (diagnostic)',
       `Children on the opposite side of school from their bus\'s cluster. Not summed into a headline (a far group shares one trip); shown to spot geography problems.`,
       optTable([
@@ -230,6 +226,11 @@ async function loadOptimizationData(){
     const upd=()=>{const op=parseFloat($('rbOpCost').value)||0;
       $('rbTotal').textContent=rupee(Number(rb.annual_fuel_saved)+rb.buses_freed*op);};
     $('rbOpCost').oninput=upd; upd();
+  }
+  if(cs && cs.buses_freed>0 && $('csOpCost')){
+    const upd=()=>{const op=parseFloat($('csOpCost').value)||0;
+      $('csTotal').textContent=rupee(Number(cs.fuel_saved)+cs.buses_freed*op);};
+    $('csOpCost').oninput=upd; upd();
   }
 
   const stamp = meta.data?.refreshed_at ? new Date(meta.data.refreshed_at).toLocaleString() : 'unknown';
@@ -377,6 +378,60 @@ function section(title, note, tableHtml){
   return `<div style="margin-bottom:22px">
     <h3 style="margin:14px 0 4px;font-size:15px">${title}</h3>
     <div class="note" style="margin-bottom:6px">${note}</div>${tableHtml}</div>`;
+}
+
+// large-scale fleet consolidation plan (student reshuffle to free buses)
+function buildConsolidationSection(cs, plan){
+  const freed = String(cs.freed_bus_ids||'').split(',').filter(Boolean).map(Number);
+  const freedSet = new Set(freed);
+  const byFrom = {};
+  plan.forEach(m=>{ (byFrom[m.from_bus]=byFrom[m.from_bus]||[]).push(m); });
+  const freedRows = freed.map(b=>{
+    const ms = byFrom[b]||[]; const dests = {};
+    ms.forEach(m=>dests[m.to_bus]=(dests[m.to_bus]||0)+1);
+    return {bus:b, n:ms.length, dests};
+  }).sort((a,b)=>b.n-a.n);
+  const chips = Array.from({length:59},(_,i)=>i+1).map(b=>
+    `<span style="display:inline-block;min-width:26px;text-align:center;padding:3px 5px;margin:2px;border-radius:5px;font-size:12px;font-weight:600;${
+      freedSet.has(b)?'background:#fdeceb;color:#b42318;text-decoration:line-through':'background:#e7f5ee;color:#087443'}">${b}</span>`).join('');
+  const maxWalk = Math.max(0,...plan.map(m=>Number(m.walk_m||0)));
+  const maxTime = Math.max(0,...plan.map(m=>Number(m.time_delta||0)));
+  const badge = t=>`<span style="background:#eef2f7;border:1px solid var(--edge);border-radius:12px;padding:3px 10px;font-size:12px;margin-right:6px;white-space:nowrap">${t}</span>`;
+  const freedTable = `<div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
+    ${['Retire bus','Students','Move them to (bus × count)','Status'].map(h=>`<th style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--edge)">${h}</th>`).join('')}
+    </tr></thead><tbody>${freedRows.map(r=>`<tr style="border-bottom:1px solid var(--edge)">
+      <td style="padding:6px 8px;font-weight:600;color:#b42318">Bus ${r.bus}</td>
+      <td style="padding:6px 8px">${r.n}</td>
+      <td style="padding:6px 8px">${Object.entries(r.dests).sort((a,b)=>b[1]-a[1]).map(([t,c])=>`bus ${t} (${c})`).join(', ')}</td>
+      <td style="padding:6px 8px">${statusCell('consolidate', r.bus)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+  const moveTable = `<table data-title="consolidation_moves" style="display:none"><tr><td>sr_no</td><td>student_name</td><td>from_bus</td><td>to_bus</td><td>walk_m</td><td>time_delta_min</td></tr>${
+    plan.map(m=>`<tr><td>${esc(m.sr_no)}</td><td>${esc(m.student_name)}</td><td>${m.from_bus}</td><td>${m.to_bus}</td><td>${m.walk_m}</td><td>${m.time_delta}</td></tr>`).join('')}</table>`;
+  return `<div style="margin-bottom:24px;border:2px solid #087443;border-radius:10px;padding:16px 16px 14px;background:#f6fbf8">
+    <h3 style="margin:0 0 4px;font-size:17px">🚍 Fleet consolidation plan — reshuffle students, free ${cs.buses_freed} buses</h3>
+    <div class="note" style="margin-bottom:10px">
+      A fleet-wide reshuffle: <b>${cs.students_moved} students</b> move to a bus that already stops within walking distance, freeing <b>${cs.buses_freed} buses (59 → ${59-cs.buses_freed})</b>.
+      Every move respects bus size, capacity, walking distance and ride-time; seats are freed by chain-moves where a nearer bus is full.
+    </div>
+    <div style="margin-bottom:10px">
+      ${badge('✓ walk ≤ '+maxWalk+' m (size-safe)')}${badge('✓ time ≤ +'+maxTime+' min')}${badge('✓ no bus over capacity')}${badge('✓ '+cs.students_moved+' students moved')}
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+      <div><div style="font-size:12px;color:#666">Fleet size</div><div style="font-size:24px;font-weight:800">59 → ${59-cs.buses_freed}</div></div>
+      <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:8px 12px;font-size:13px">
+        Operating cost per retired bus /yr:
+        <input id="csOpCost" value="400000" autocomplete="off" style="width:110px;padding:3px 6px;border:1px solid var(--edge);border-radius:4px"/>
+        → <b>Total saving: <span id="csTotal">—</span>/yr</b>
+        <div class="note" style="margin-top:2px">= ${rupee(cs.fuel_saved)} fuel + ${cs.buses_freed} buses × operating cost.</div>
+      </div>
+    </div>
+    <div style="margin-bottom:12px"><div style="font-size:12px;color:#666;margin-bottom:4px">Fleet after plan — <span style="color:#b42318">red = retired</span></div>${chips}</div>
+    ${freedTable}
+    <div style="margin-top:8px"><button class="b-ghost optcsv" data-t="consolidation_moves" style="font-size:12px">Download full move list (${cs.students_moved})</button></div>
+    ${moveTable}
+    <div class="note" style="margin-top:8px">Caveats: receiving buses fill to ~100% (keep 2–3 seats free for new admissions/absences); ride-time uses each student's nearest new-stop time as a proxy; assumes children can walk up to ${maxWalk} m to a stop. Review before executing.</div>
+  </div>`;
 }
 
 /* ---------- simulator (fixed keys + response shape) ---------- */
