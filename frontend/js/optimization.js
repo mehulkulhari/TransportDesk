@@ -10,6 +10,9 @@ const REASON_LABEL = {
   closer_to_other_route: 'Another bus already passes closer'
 };
 
+// status of each optimization suggestion, keyed "task_type|task_key" (loaded per render)
+let optStatus = {};
+
 export async function renderOptimization(){
   $('optBody').innerHTML = `
     <h2 style="margin:0 0 4px">Route Optimization</h2>
@@ -64,7 +67,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -75,10 +78,16 @@ async function loadOptimizationData(){
     db.from('report_fuel_summary').select('total_annual_fuel').single(),
     db.from('opt_meta').select('refreshed_at').single(),
     db.from('opt_rebalance_summary').select('*').maybeSingle(),
-    db.from('opt_rebalance_moves').select('*')
+    db.from('opt_rebalance_moves').select('*'),
+    db.from('opt_task_status').select('*'),
+    db.from('report_deadrun_full').select('*').order('annual_dead_fuel',{ascending:false})
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
+
+  // status map for every suggestion row: key = "task_type|task_key"
+  optStatus = {};
+  (statuses.data||[]).forEach(s=>{ optStatus[s.task_type+'|'+s.task_key] = s; });
 
   const m = master.data;
   const sf = studentFix.data || [];
@@ -113,7 +122,9 @@ async function loadOptimizationData(){
       `The big one. By chain-moving students to nearby buses that already have spare seats, these <b>${rb.buses_freed} buses can be retired entirely</b> — saving <b>${rupee(rb.annual_fuel_saved)}/yr in fuel</b> plus their drivers, maintenance and insurance (typically several lakh per bus). ${rb.students_moved} students move, and no receiving bus goes over capacity. Freed buses: <b>${esc(rb.freed_bus_ids)}</b>. Estimates use real cached distances; confirm a specific bus in the simulator before acting.`,
       optTable([
         {k:'freed_bus',label:'Retire bus'},{k:'students',label:'Students to move'},
-        {k:'absorb_cost',label:'Added fuel elsewhere /yr',f:rupee}
+        {k:'absorb_cost',label:'Added fuel elsewhere /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('rebalance', r.freed_bus)},
+        {label:'',cell:r=>mapBtn('', r.freed_bus)}
       ], rbRows, 'fleet_rebalance')
       + `<div style="margin-top:8px;background:#fff;border:1px solid var(--edge);border-radius:6px;padding:8px 10px;font-size:13px">
           Operating cost per retired bus /yr (driver + maintenance + insurance):
@@ -141,6 +152,7 @@ async function loadOptimizationData(){
         {k:'km_to_school',label:'Km to school',f:n1},{k:'marginal_km',label:'Extra km/trip',f:n1},
         {k:'annual_fuel_cost',label:'Costs school /yr',f:rupee},
         {k:'has_cheaper_bus',label:'Movable?',f:v=>v?'yes — move':'no — charge fee'},
+        {label:'Status',cell:r=>statusCell('far_fee', r.sr_no)},
         {label:'',cell:r=>mapBtn(r.sr_no, r.bus_id)}
       ], cst, 'far_student_cost')
     ) +
@@ -150,7 +162,8 @@ async function loadOptimizationData(){
       optTable([
         {k:'bus_a',label:'Bus A'},{k:'bus_b',label:'overlaps Bus B'},
         {k:'a_km',label:'A route km',f:n1},{k:'shared_km',label:'Shared km',f:n1},
-        {k:'shared_pct',label:'Shared %',f:v=>v+'%'}
+        {k:'shared_pct',label:'Shared %',f:v=>v+'%'},
+        {label:'Status',cell:r=>statusCell('overlap', r.bus_a+'-'+r.bus_b)}
       ], overlap.data||[], 'corridor_overlaps')
     ) +
     section(
@@ -159,8 +172,20 @@ async function loadOptimizationData(){
       optTable([
         {k:'bus_a',label:'Bus A'},{k:'bus_b',label:'Bus B'},
         {k:'now_km',label:'Now (both) km',f:n1},{k:'swapped_km',label:'Swapped km',f:n1},
-        {k:'km_saved_trip',label:'Saved/trip',f:n1},{k:'annual_fuel_saving',label:'Save /yr',f:rupee}
+        {k:'km_saved_trip',label:'Saved/trip',f:n1},{k:'annual_fuel_saving',label:'Save /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('depot_swap', r.bus_a+'-'+r.bus_b)}
       ], depot.data||[], 'depot_swaps')
+    ) +
+    section(
+      'Start points — buses running empty before the first child',
+      `Each bus drives empty from its start point to its first student ("dead run"). These start too far out — moving the start point (or the depot) closer recovers the fuel shown. Click <b>Map</b> to see the bus's start and route.`,
+      optTable([
+        {k:'bus_id',label:'Bus'},{k:'start_from',label:'Starts from'},{k:'first_student',label:'First student'},
+        {k:'dead_km',label:'Dead run km',f:n1},{k:'annual_dead_fuel',label:'Wasted /yr',f:rupee},
+        {k:'annual_savings_if_close',label:'Recover /yr if ≤1.5km',f:rupee},
+        {label:'Status',cell:r=>statusCell('start_point', r.bus_id)},
+        {label:'',cell:r=>mapBtn('', r.bus_id)}
+      ], (deadrun.data||[]).filter(r=>Number(r.annual_savings_if_close||0)>0).slice(0,40), 'start_points')
     ) +
     section(
       'Consolidation candidates',
@@ -168,7 +193,8 @@ async function loadOptimizationData(){
       optTable([
         {k:'bus_a',label:'Bus A'},{k:'bus_b',label:'Bus B'},{k:'combined',label:'Combined riders'},
         {k:'best_capacity',label:'Capacity'},{k:'bus_to_retire',label:'Retire'},
-        {k:'potential_annual_saving',label:'Fuel save /yr',f:rupee}
+        {k:'potential_annual_saving',label:'Fuel save /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('consolidation', r.bus_a+'-'+r.bus_b)}
       ], merge.data||[], 'consolidation')
     ) +
     section(
@@ -178,6 +204,7 @@ async function loadOptimizationData(){
         {k:'sr_no',label:'SR'},{k:'student_name',label:'Name'},{k:'bus_id',label:'Bus'},
         {k:'km_from_cluster',label:'From cluster km',f:n1},{k:'km_to_school',label:'To school km',f:n1},
         {k:'annual_backtrack_fuel',label:'Annual fuel',f:rupee},
+        {label:'Status',cell:r=>statusCell('backtracker', r.sr_no)},
         {label:'',cell:r=>mapBtn(r.sr_no, r.bus_id)}
       ], (backtrack.data||[]).slice(0,80), 'backtrackers')
     );
@@ -195,7 +222,7 @@ async function loadOptimizationData(){
 /* ---------- student-fix table with per-row Test button ---------- */
 function studentFixTable(rows){
   if(!rows.length) return `<div class="note">No student moves found.</div>`;
-  const head = ['SR','Name','From','To','Why','Own detour','Insert','Net/trip','Net /yr','Room?','']
+  const head = ['SR','Name','From','To','Why','Own detour','Insert','Net/trip','Net /yr','Room?','Status','']
     .map(h=>`<th style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--edge);white-space:nowrap">${h}</th>`).join('');
   const body = rows.map(r=>`<tr style="border-bottom:1px solid var(--edge);${r.receiving_feasible?'':'opacity:.62'}">
     <td style="padding:6px 8px">${esc(r.sr_no)}</td>
@@ -208,6 +235,7 @@ function studentFixTable(rows){
     <td style="padding:6px 8px">${n1(r.net_km_trip)} km</td>
     <td style="padding:6px 8px;font-weight:600">${rupee(r.net_annual_fuel)}</td>
     <td style="padding:6px 8px">${r.receiving_feasible?'<span style="color:#087443">yes</span>':'<span style="color:#b42318">full</span>'}</td>
+    <td style="padding:6px 8px">${statusCell('student_move', r.sr_no)}</td>
     <td style="padding:6px 8px;white-space:nowrap"><button class="b-ghost simrow" data-mv="${esc(r.sr_no)} ${esc(r.best_bus)}" style="font-size:12px;padding:3px 8px">Test</button> ${mapBtn(r.sr_no, r.own_bus+','+r.best_bus)}</td>
   </tr>`).join('');
   return `<div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto">
@@ -224,6 +252,35 @@ function wireRowButtons(){
   document.querySelectorAll('.optcsv').forEach(b=>b.onclick=()=>downloadOptCsv(b.dataset.t));
   document.querySelectorAll('.mapbtn').forEach(b=>b.onclick=()=>
     showSuggestionOnMap(b.dataset.sr, (b.dataset.buses||'').split(',').filter(Boolean).map(Number)));
+  wireStatusControls();
+}
+
+function wireStatusControls(){
+  // change status dropdown
+  document.querySelectorAll('.optstat').forEach(sel=>sel.onchange=async ()=>{
+    const {tt, key} = sel.dataset, v = sel.value;
+    if(v==='cannot'){                                  // ask for a reason inline
+      const box = sel.closest('.statwrap').querySelector('.statreasoninput');
+      if(box){ box.style.display=''; box.querySelector('.statreasontext').focus(); }
+      return;                                          // saved only when they click Save
+    }
+    if(v===''){ if(await clearStatus(tt,key)) refreshStatusCell(tt,key); wireStatusControls(); return; }
+    if(await saveStatus(tt,key,v,null)){ refreshStatusCell(tt,key); wireStatusControls(); }
+  });
+  // save a "cannot be done" reason
+  document.querySelectorAll('.statsave').forEach(btn=>btn.onclick=async ()=>{
+    const wrap = btn.closest('.statwrap');
+    const reason = wrap.querySelector('.statreasontext').value.trim();
+    if(!reason){ toast('Add a short reason','bad'); return; }
+    if(await saveStatus(wrap.dataset.tt, wrap.dataset.key, 'cannot', reason)){
+      refreshStatusCell(wrap.dataset.tt, wrap.dataset.key); wireStatusControls();
+    }
+  });
+  // toggle "why?" reason visibility
+  document.querySelectorAll('.statwhy').forEach(a=>a.onclick=()=>{
+    const box = a.parentElement.querySelector('.statreasonbox');
+    if(box) box.style.display = box.style.display==='none' ? '' : 'none';
+  });
 }
 
 /* ---------- generic table ---------- */
@@ -242,6 +299,53 @@ const csvBtn = t => `<div style="margin:6px 0 2px"><button class="b-ghost optcsv
 
 // "Map" button that opens this suggestion live on the Route map (student + its buses)
 const mapBtn = (sr, buses) => `<button class="b-ghost mapbtn" data-sr="${esc(sr)}" data-buses="${esc(buses)}" style="font-size:12px;padding:3px 8px">Map</button>`;
+
+/* ---------- per-suggestion status (Work in progress / Completed / Cannot be done) ---------- */
+const STAT = { wip:{t:'In progress',c:'#8a6d00',bg:'#fff7e0'}, done:{t:'Completed',c:'#087443',bg:'#e7f5ee'}, cannot:{t:"Can't be done",c:'#b42318',bg:'#fdeceb'} };
+
+// renders the whole status cell for one row (badge/select + reason)
+function statusCell(tt, key){
+  const s = optStatus[tt+'|'+key];
+  const cur = s?.status || '';
+  const opts = [['','— set status —'],['wip','Work in progress'],['done','Completed'],['cannot','Cannot be done']]
+    .map(([v,l])=>`<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('');
+  const badge = cur ? `<span class="statbadge" style="background:${STAT[cur].bg};color:${STAT[cur].c};padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap">${STAT[cur].t}</span>` : '';
+  const reason = (cur==='cannot' && s?.reason)
+    ? `<a class="statwhy" data-tt="${esc(tt)}" data-key="${esc(key)}" href="javascript:void 0" style="font-size:11px;color:#b42318;margin-left:6px">why?</a>
+       <div class="statreasonbox" data-for="${esc(tt)}|${esc(key)}" style="display:none;font-size:12px;color:#8a1c14;margin-top:3px;max-width:220px;white-space:normal">${esc(s.reason)}</div>` : '';
+  return `<div class="statwrap" data-tt="${esc(tt)}" data-key="${esc(key)}" style="min-width:150px">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${badge}
+        <select class="optstat" data-tt="${esc(tt)}" data-key="${esc(key)}" style="font-size:11px;padding:2px 4px;border:1px solid var(--edge);border-radius:5px">${opts}</select></div>
+      ${reason}
+      <div class="statreasoninput" data-for="${esc(tt)}|${esc(key)}" style="display:none;margin-top:4px">
+        <input class="statreasontext" placeholder="Why can't it be done?" style="width:200px;font-size:12px;padding:3px 6px;border:1px solid var(--edge);border-radius:5px" value="${esc(cur==='cannot'&&s?.reason?s.reason:'')}"/>
+        <button class="b-primary statsave" style="font-size:11px;padding:3px 8px;margin-left:4px">Save</button>
+      </div>
+    </div>`;
+}
+
+async function saveStatus(tt, key, status, reason){
+  const row = { task_type: tt, task_key: String(key), status, reason: reason||null,
+                updated_at: new Date().toISOString(), updated_by: (globalThis.currentUser?.email)||null };
+  const { error } = await db.from('opt_task_status').upsert(row, { onConflict:'task_type,task_key' });
+  if(error){ toast('Could not save status: '+error.message,'bad'); return false; }
+  optStatus[tt+'|'+key] = row;
+  return true;
+}
+async function clearStatus(tt, key){
+  const { error } = await db.from('opt_task_status').delete().eq('task_type',tt).eq('task_key',String(key));
+  if(error){ toast('Could not clear status: '+error.message,'bad'); return false; }
+  delete optStatus[tt+'|'+key];
+  return true;
+}
+
+// re-render a single status cell in place (after a change)
+function refreshStatusCell(tt, key){
+  document.querySelectorAll(`.statwrap[data-tt="${cssq(tt)}"][data-key="${cssq(key)}"]`).forEach(el=>{
+    el.outerHTML = statusCell(tt, key);
+  });
+}
+const cssq = s => String(s).replace(/["\\]/g,'\\$&');
 
 async function showSuggestionOnMap(sr, buses){
   const nav=[...document.querySelectorAll('nav button')].find(b=>b.dataset.view==='map');
@@ -362,8 +466,9 @@ const signkm = v => (Number(v)<0?'−':'+')+Math.abs(Number(v)).toFixed(1)+' km'
 export function downloadOptCsv(title){
   const tbl = document.querySelector(`table[data-title="${title}"]`);
   if(!tbl) return;
+  const skip = td => td.querySelector('button,select,input') || ['Status','','Test','Map','Test Map'].includes(td.textContent.trim());
   const rows = [...tbl.querySelectorAll('tr')].map(tr=>[...tr.children]
-    .filter(td=>!['Test','Map','Test Map'].includes(td.textContent.trim()))
+    .filter(td=>!skip(td))
     .map(td=>`"${td.textContent.replace(/"/g,'""').trim()}"`).join(','));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));

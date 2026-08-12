@@ -32,7 +32,7 @@ export function digits(s){ if(!s)return null; const d=String(s).replace(/\D/g,''
 
 export function repTable(cols,rows,title){
   const head=cols.map(c=>`<th>${esc(c.label)}</th>`).join('');
-  const body=rows.map(r=>'<tr>'+cols.map(c=>`<td>${esc(c.fmt?c.fmt(r[c.k]):(r[c.k]??''))}</td>`).join('')+'</tr>').join('');
+  const body=rows.map(r=>'<tr>'+cols.map(c=>`<td>${c.cell?c.cell(r):esc(c.fmt?c.fmt(r[c.k]):(r[c.k]??''))}</td>`).join('')+'</tr>').join('');
   return `<div class="actions" style="margin:6px 0"><button class="b-ghost repcsv" data-t="${esc(title)}">Download CSV</button><span class="note">${rows.length} rows</span></div>
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table data-title="${esc(title)}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }

@@ -72,7 +72,8 @@ export async function repSection(which){
         {k:'dead_km',label:'Dead run (km)'},{k:'dead_min_per_trip',label:'Dead min/trip'},
         {k:'annual_dead_fuel',label:'Wasted fuel/yr',fmt:rupee},
         {k:'savable_km',label:'Savable km',fmt:v=>Number(v).toFixed(2)},
-        {k:'annual_savings_if_close',label:'Save/yr if ≤1.5km',fmt:rupee}],rows||[],'start_points_deadrun');
+        {k:'annual_savings_if_close',label:'Save/yr if ≤1.5km',fmt:rupee},
+        {label:'',cell:r=>`<button class="b-ghost startmapbtn" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Map</button>`}],rows||[],'start_points_deadrun');
   }
   else if(which==='Geography'){
     out.innerHTML=`<div class="note" style="margin-bottom:8px">Where students live, where routes run, and which routes overlap.</div>
@@ -86,6 +87,7 @@ export async function repSection(which){
     setTimeout(()=>buildGeography(),50);
   }
   out.querySelectorAll('.repcsv').forEach(b=>b.onclick=()=>downloadRepCsv(b.closest('#repOut').querySelector(`table[data-title="${b.dataset.t}"]`),b.dataset.t));
+  out.querySelectorAll('.startmapbtn').forEach(b=>b.onclick=()=>globalThis.showSuggestionOnMap('', [Number(b.dataset.bus)]));
 }
 
 export function downloadRepCsv(tbl,title){
