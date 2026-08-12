@@ -24,4 +24,4 @@ export const GOOGLE_MAPS_API_KEY = "";
 // the browser. Safe to ship ONLY because it is HTTP-referrer restricted to this
 // site's domain in Google Cloud Console — a copied key won't work elsewhere.
 // Keep it restricted; rotate if it ever leaks beyond the referrer allow-list.
-export const GOOGLE_DIRECTIONS_KEY = "AIzaSyA9tqHUw96KjrH1sdRxKTXs3Yl9ge3g2xk";
+export const GOOGLE_DIRECTIONS_KEY = "AIzaSyD13KhPhVE6dEy6b_CZ2_MRyUD2avlELYg";

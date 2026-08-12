@@ -67,7 +67,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -80,7 +80,9 @@ async function loadOptimizationData(){
     db.from('opt_rebalance_summary').select('*').maybeSingle(),
     db.from('opt_rebalance_moves').select('*'),
     db.from('opt_task_status').select('*'),
-    db.from('report_deadrun_full').select('*').order('annual_dead_fuel',{ascending:false})
+    db.from('report_deadrun_full').select('*').order('annual_dead_fuel',{ascending:false}),
+    db.from('opt_fleet_assign').select('*').order('annual_saving',{ascending:false}),
+    db.from('opt_fleet_assign_summary').select('*').maybeSingle()
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -98,8 +100,11 @@ async function loadOptimizationData(){
   const stuckCost = stuck.reduce((a,r)=>a+Number(r.annual_fuel_cost||0),0);
 
   const rb = rebalSum.data;
+  const fleetMoves = (fleetAssign.data||[]).filter(r=>r.suggested_vehicle!==r.bus_id);
+  const fleetSaving = Number(fleetSum.data?.annual_saving||0);
 
   $('optCards').innerHTML = [
+    fleetSaving>0 ? card('Vehicle swaps', fleetMoves.length, rupee(fleetSaving)+'/yr fuel') : '',
     rb&&rb.buses_freed>0 ? card('Retire buses', rb.buses_freed, rupee(rb.annual_fuel_saved)+'/yr fuel + drivers') : '',
     card('Students to move', sfFeasible.length, rupee(sfTotal)+'/yr net'),
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
@@ -117,6 +122,18 @@ async function loadOptimizationData(){
     .sort((a,b)=>a.freed_bus-b.freed_bus);
 
   $('optTables').innerHTML =
+    (fleetMoves.length ? section(
+      '🔧 Vehicle reassignment — put efficient buses on the long routes',
+      `Your buses range from <b>3 to 17 km/L</b>, but the current assignment ignores mileage — several long routes run on the thirstiest engines. `+
+      `Swapping which physical bus drives which route (students, stops and depots unchanged) cuts <b>${rupee(fleetSaving)}/yr</b> of diesel across ${fleetMoves.length} vehicle swaps, with capacity respected. `+
+      `Do the top few first for most of the benefit. Check a bus can physically serve the route (lane width, terrain) before swapping.`,
+      optTable([
+        {k:'bus_id',label:'Route (bus)'},{k:'riders',label:'Riders'},{k:'route_km',label:'Route km',f:n1},
+        {k:'current_mileage',label:'Now km/L',f:n1},{k:'suggested_vehicle',label:'Use engine of bus'},
+        {k:'suggested_mileage',label:'New km/L',f:n1},{k:'annual_saving',label:'Save /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('fleet_assign', r.bus_id)}
+      ], fleetMoves, 'vehicle_reassignment')
+    ) : '') +
     (rb&&rb.buses_freed>0 ? section(
       '🚌 Fleet rebalance — buses you can retire',
       `The big one. By chain-moving students to nearby buses that already have spare seats, these <b>${rb.buses_freed} buses can be retired entirely</b> — saving <b>${rupee(rb.annual_fuel_saved)}/yr in fuel</b> plus their drivers, maintenance and insurance (typically several lakh per bus). ${rb.students_moved} students move, and no receiving bus goes over capacity. Freed buses: <b>${esc(rb.freed_bus_ids)}</b>. Estimates use real cached distances; confirm a specific bus in the simulator before acting.`,

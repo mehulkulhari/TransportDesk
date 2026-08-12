@@ -1,4 +1,6 @@
 .env
+GPS Files/
+*.kml
 node_modules/
 .vscode/
 __pycache__/
