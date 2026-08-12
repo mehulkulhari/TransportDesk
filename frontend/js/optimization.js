@@ -67,7 +67,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -84,7 +84,8 @@ async function loadOptimizationData(){
     db.from('opt_fleet_assign').select('*').order('annual_saving',{ascending:false}),
     db.from('opt_fleet_assign_summary').select('*').maybeSingle(),
     db.from('opt_consolidation_summary').select('*').maybeSingle(),
-    db.from('opt_consolidation_plan').select('*')
+    db.from('opt_consolidation_plan').select('*'),
+    db.from('opt_consolidation_bus').select('*')
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -101,63 +102,35 @@ async function loadOptimizationData(){
   const stuck = cst.filter(r=>!r.has_cheaper_bus);          // far AND can't be moved -> charge a fee
   const stuckCost = stuck.reduce((a,r)=>a+Number(r.annual_fuel_cost||0),0);
 
-  const rb = rebalSum.data;
-  const fleetMoves = (fleetAssign.data||[]).filter(r=>r.suggested_vehicle!==r.bus_id);
+  const fleetSwaps = fleetAssign.data || [];
   const fleetSaving = Number(fleetSum.data?.annual_saving||0);
   const cs = consSum.data;
   const cplan = consPlan.data || [];
+  const cbus = consBus.data || [];
 
   $('optCards').innerHTML = [
-    cs&&cs.buses_freed>0 ? card('Consolidate fleet', '59→'+(59-cs.buses_freed), '−'+cs.buses_freed+' buses · '+rupee(cs.fuel_saved)+' fuel + drivers') : '',
-    fleetSaving>0 ? card('Vehicle swaps', fleetMoves.length, rupee(fleetSaving)+'/yr fuel') : '',
-    rb&&rb.buses_freed>0 ? card('Retire buses (tight)', rb.buses_freed, rupee(rb.annual_fuel_saved)+'/yr fuel + drivers') : '',
+    cs&&cs.buses_freed>0 ? card('Consolidate fleet', '59→'+(59-cs.buses_freed), '−'+cs.buses_freed+' bus'+(cs.buses_freed>1?'es':'')+' · '+rupee(cs.fuel_saved)+' fuel + drivers') : '',
+    fleetSwaps.length ? card('Vehicle swaps', fleetSwaps.length, rupee(fleetSaving)+'/yr fuel') : '',
     card('Students to move', sfFeasible.length, rupee(sfTotal)+'/yr net'),
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
-    card('Corridor overlaps', (overlap.data||[]).length, 'buses sharing roads'),
     card('Depot swaps', (depot.data||[]).length, rupee((depot.data||[]).reduce((a,r)=>a+Number(r.annual_fuel_saving||0),0))+'/yr'),
-    card('Retirable buses', m.retirable_buses, rupee(m.merge_fuel)+'/yr'),
     card('Fleet use', m.fleet_utilisation_pct+'%', m.buses_running+' buses'),
     card('Annual fuel', rupee(fuel.data?.total_annual_fuel||0))
   ].join('');
 
-  const rbMoves = rebalMoves.data || [];
-  const rbByBus = {};
-  rbMoves.forEach(m=>{(rbByBus[m.freed_bus]=rbByBus[m.freed_bus]||{n:0,cost:0}).n++; rbByBus[m.freed_bus].cost+=Number(m.insert_fuel||0);});
-  const rbRows = Object.keys(rbByBus).map(b=>({freed_bus:+b, students:rbByBus[b].n, absorb_cost:Math.round(rbByBus[b].cost)}))
-    .sort((a,b)=>a.freed_bus-b.freed_bus);
-
   $('optTables').innerHTML =
-    (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan) : '') +
-    (fleetMoves.length ? section(
-      '🔧 Vehicle reassignment — put efficient buses on the long routes',
-      `Your buses range from <b>3 to 17 km/L</b>, but the current assignment ignores mileage — several long routes run on the thirstiest engines. `+
-      `Swapping which physical bus drives which route (students, stops and depots unchanged) cuts <b>${rupee(fleetSaving)}/yr</b> of diesel across ${fleetMoves.length} vehicle swaps, with capacity respected. `+
-      `Do the top few first for most of the benefit. Check a bus can physically serve the route (lane width, terrain) before swapping.`,
+    (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan, cbus) : '') +
+    (fleetSwaps.length ? section(
+      '🔧 Vehicle swaps — swap two same-size buses so the efficient one runs the longer route',
+      `Buses of the same size but different mileage (3–17 km/L) are mis-assigned — long routes on thirsty engines. `+
+      `Each row is a straight <b>vehicle swap between two same-size buses</b> (students, stops and depots unchanged) that <b>saves fuel</b> — only profitable swaps are shown. Total <b>${rupee(fleetSaving)}/yr</b> across ${fleetSwaps.length} swaps.`,
       optTable([
-        {k:'bus_id',label:'Route (bus)'},{k:'riders',label:'Riders'},{k:'route_km',label:'Route km',f:n1},
-        {k:'current_mileage',label:'Now km/L',f:n1},{k:'suggested_vehicle',label:'Use engine of bus'},
-        {k:'suggested_mileage',label:'New km/L',f:n1},{k:'annual_saving',label:'Save /yr',f:rupee},
-        {label:'Status',cell:r=>statusCell('fleet_assign', r.bus_id)}
-      ], fleetMoves, 'vehicle_reassignment')
-    ) : '') +
-    (rb&&rb.buses_freed>0 ? section(
-      '🚌 Fleet rebalance — buses you can retire',
-      `The big one. By chain-moving students to nearby buses that already have spare seats, these <b>${rb.buses_freed} buses can be retired entirely</b> — saving <b>${rupee(rb.annual_fuel_saved)}/yr in fuel</b> plus their drivers, maintenance and insurance (typically several lakh per bus). ${rb.students_moved} students move, and no receiving bus goes over capacity. Freed buses: <b>${esc(rb.freed_bus_ids)}</b>. Estimates use real cached distances; confirm a specific bus in the simulator before acting.`,
-      optTable([
-        {k:'freed_bus',label:'Retire bus'},{k:'students',label:'Students to move'},
-        {k:'absorb_cost',label:'Added fuel elsewhere /yr',f:rupee},
-        {label:'Status',cell:r=>statusCell('rebalance', r.freed_bus)},
-        {label:'',cell:r=>mapBtn('', r.freed_bus)}
-      ], rbRows, 'fleet_rebalance')
-      + `<div style="margin-top:8px;background:#fff;border:1px solid var(--edge);border-radius:6px;padding:8px 10px;font-size:13px">
-          Operating cost per retired bus /yr (driver + maintenance + insurance):
-          <input id="rbOpCost" value="400000" autocomplete="off" style="width:120px;padding:3px 6px;border:1px solid var(--edge);border-radius:4px"/>
-          → <b>True total saving: <span id="rbTotal">—</span>/yr</b>
-          <div class="note" style="margin-top:3px">= ${rupee(rb.annual_fuel_saved)} fuel + ${rb.buses_freed} buses × operating cost. Set your school's real per-bus figure.</div>
-        </div>`
-      + `<div style="margin-top:4px"><button class="b-ghost optcsv" data-t="rebalance_moves" style="font-size:12px">Download full move list (${rbMoves.length})</button></div>`
-      + `<table data-title="rebalance_moves" style="display:none"><tr><td>freed_bus</td><td>sr_no</td><td>student_name</td><td>from_bus</td><td>to_bus</td><td>insert_km</td><td>insert_fuel</td></tr>${
-          rbMoves.map(m=>`<tr><td>${m.freed_bus}</td><td>${esc(m.sr_no)}</td><td>${esc(m.student_name)}</td><td>${m.from_bus}</td><td>${m.to_bus}</td><td>${m.insert_km}</td><td>${m.insert_fuel}</td></tr>`).join('')}</table>`
+        {k:'bus_a',label:'Swap bus'},{k:'bus_b',label:'⇄ with bus'},{k:'size',label:'Seats',f:v=>({1:'≤16',2:'22-27',3:'30-36',4:'40-45',5:'50-52'}[v]||v)},
+        {k:'a_km',label:'Its route km',f:n1},{k:'b_km',label:'Other route km',f:n1},
+        {k:'a_kmpl',label:'km/L',f:n1},{k:'b_kmpl',label:'km/L',f:n1},
+        {k:'annual_saving',label:'Save /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('fleet_swap', r.bus_a+'-'+r.bus_b)}
+      ], fleetSwaps, 'vehicle_swaps')
     ) : '') +
     section(
       'Students to move — the highest-value fixes',
@@ -178,16 +151,6 @@ async function loadOptimizationData(){
         {label:'Status',cell:r=>statusCell('far_fee', r.sr_no)},
         {label:'',cell:r=>mapBtn(r.sr_no, r.bus_id)}
       ], cst, 'far_student_cost')
-    ) +
-    section(
-      'Corridor overlaps — two buses on the same road',
-      `Pairs whose routes run along the same stretch. Candidates to split the corridor so one bus covers each side.`,
-      optTable([
-        {k:'bus_a',label:'Bus A'},{k:'bus_b',label:'overlaps Bus B'},
-        {k:'a_km',label:'A route km',f:n1},{k:'shared_km',label:'Shared km',f:n1},
-        {k:'shared_pct',label:'Shared %',f:v=>v+'%'},
-        {label:'Status',cell:r=>statusCell('overlap', r.bus_a+'-'+r.bus_b)}
-      ], overlap.data||[], 'corridor_overlaps')
     ) +
     section(
       'Depot swaps — start two buses from each other\'s point',
@@ -222,11 +185,6 @@ async function loadOptimizationData(){
       ], (backtrack.data||[]).slice(0,80), 'backtrackers')
     );
 
-  if(rb && rb.buses_freed>0 && $('rbOpCost')){
-    const upd=()=>{const op=parseFloat($('rbOpCost').value)||0;
-      $('rbTotal').textContent=rupee(Number(rb.annual_fuel_saved)+rb.buses_freed*op);};
-    $('rbOpCost').oninput=upd; upd();
-  }
   if(cs && cs.buses_freed>0 && $('csOpCost')){
     const upd=()=>{const op=parseFloat($('csOpCost').value)||0;
       $('csTotal').textContent=rupee(Number(cs.fuel_saved)+cs.buses_freed*op);};
@@ -381,7 +339,7 @@ function section(title, note, tableHtml){
 }
 
 // large-scale fleet consolidation plan (student reshuffle to free buses)
-function buildConsolidationSection(cs, plan){
+function buildConsolidationSection(cs, plan, cbus){
   const freed = String(cs.freed_bus_ids||'').split(',').filter(Boolean).map(Number);
   const freedSet = new Set(freed);
   const byFrom = {};
@@ -407,16 +365,33 @@ function buildConsolidationSection(cs, plan){
       <td style="padding:6px 8px">${Object.entries(r.dests).sort((a,b)=>b[1]-a[1]).map(([t,c])=>`bus ${t} (${c})`).join(', ')}</td>
       <td style="padding:6px 8px">${statusCell('consolidate', r.bus)}</td>
     </tr>`).join('')}</tbody></table></div>`;
-  const moveTable = `<table data-title="consolidation_moves" style="display:none"><tr><td>sr_no</td><td>student_name</td><td>from_bus</td><td>to_bus</td><td>walk_m</td><td>time_delta_min</td></tr>${
-    plan.map(m=>`<tr><td>${esc(m.sr_no)}</td><td>${esc(m.student_name)}</td><td>${m.from_bus}</td><td>${m.to_bus}</td><td>${m.walk_m}</td><td>${m.time_delta}</td></tr>`).join('')}</table>`;
+  // impact on each receiving bus (added distance / time / fuel)
+  const perBus = `<div style="margin-top:14px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">What each receiving bus takes on</div>
+    <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
+    ${['Receiving bus','+Students','+Distance / trip','+Time / trip','+Fuel / yr'].map(h=>`<th style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--edge)">${h}</th>`).join('')}
+    </tr></thead><tbody>${(cbus||[]).slice().sort((a,b)=>b.added_students-a.added_students).map(r=>`<tr style="border-bottom:1px solid var(--edge)">
+      <td style="padding:6px 8px;font-weight:600">Bus ${r.to_bus}</td><td style="padding:6px 8px">+${r.added_students}</td>
+      <td style="padding:6px 8px">+${n1(r.added_km)} km</td><td style="padding:6px 8px">+${n1(r.added_min)} min</td>
+      <td style="padding:6px 8px">+${rupee(r.added_fuel)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  // every student moved, by name
+  const stuList = `<div style="margin-top:14px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">Every student moved (${plan.length})</div>
+    <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto;max-height:360px"><table data-title="consolidation_moves" style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
+    ${['Student','Class','From','To','Walk to new bus','Time change'].map(h=>`<th style="text-align:left;padding:7px 8px;border-bottom:1px solid var(--edge);position:sticky;top:0;background:#fff">${h}</th>`).join('')}
+    </tr></thead><tbody>${plan.slice().sort((a,b)=>a.to_bus-b.to_bus).map(m=>`<tr style="border-bottom:1px solid var(--edge)">
+      <td style="padding:6px 8px">${esc(m.student_name)}</td>
+      <td style="padding:6px 8px">${esc(m.class||'')}${m.section?'-'+esc(m.section):''}</td>
+      <td style="padding:6px 8px">Bus ${m.from_bus}</td><td style="padding:6px 8px"><b>Bus ${m.to_bus}</b></td>
+      <td style="padding:6px 8px">${m.walk_m} m</td>
+      <td style="padding:6px 8px;color:${Number(m.time_delta)<=0?'#087443':'#8a6d00'}">${Number(m.time_delta)<=0?'':'+'}${m.time_delta} min</td>
+    </tr>`).join('')}</tbody></table></div></div>`;
   return `<div style="margin-bottom:24px;border:2px solid #087443;border-radius:10px;padding:16px 16px 14px;background:#f6fbf8">
     <h3 style="margin:0 0 4px;font-size:17px">🚍 Fleet consolidation — free ${nb} ${busWord} without breaking the +10 min limit</h3>
     <div class="note" style="margin-bottom:10px">
       Door-to-door reshuffle: <b>${cs.students_moved} students</b> from bus <b>${esc(cs.freed_bus_ids)}</b> move to nearby buses, freeing <b>${nb} ${busWord} (59 → ${59-cs.buses_freed})</b>.
-      This is the conservative plan — only buses whose riders can be absorbed by nearby same-area buses <i>without</i> pushing any bus past +10 min or over capacity. Seats are freed by chain-moves where a nearer bus is full.
+      Only riders that a nearby same-size bus can absorb <i>without</i> pushing that bus past +10 min or over capacity — seats freed by chain-moves where a nearer bus is full.
     </div>
     <div style="margin-bottom:10px">
-      ${badge('✓ door detour ≤ '+maxWalk+' m')}${badge('✓ ride-time ≤ +'+maxTime+' min')}${badge('✓ no bus over capacity')}${badge('✓ same size class')}
+      ${badge('✓ door detour ≤ '+maxWalk+' m')}${badge('✓ receiving-bus time ≤ +'+maxTime+' min')}${badge('✓ no bus over capacity')}${badge('✓ same size class')}
     </div>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
       <div><div style="font-size:12px;color:#666">Fleet size</div><div style="font-size:24px;font-weight:800">59 → ${59-cs.buses_freed}</div></div>
@@ -424,14 +399,15 @@ function buildConsolidationSection(cs, plan){
         Operating cost per retired bus /yr:
         <input id="csOpCost" value="400000" autocomplete="off" style="width:110px;padding:3px 6px;border:1px solid var(--edge);border-radius:4px"/>
         → <b>Total saving: <span id="csTotal">—</span>/yr</b>
-        <div class="note" style="margin-top:2px">= ${rupee(cs.fuel_saved)} fuel + ${cs.buses_freed} buses × operating cost.</div>
+        <div class="note" style="margin-top:2px">= ${rupee(cs.fuel_saved)} fuel + ${cs.buses_freed} bus${cs.buses_freed>1?'es':''} × operating cost.</div>
       </div>
     </div>
-    <div style="margin-bottom:12px"><div style="font-size:12px;color:#666;margin-bottom:4px">Fleet after plan — <span style="color:#b42318">red = retired</span></div>${chips}</div>
+    <div style="margin-bottom:4px"><div style="font-size:12px;color:#666;margin-bottom:4px">Fleet after plan — <span style="color:#b42318">red = retired</span></div>${chips}</div>
     ${freedTable}
-    <div style="margin-top:8px"><button class="b-ghost optcsv" data-t="consolidation_moves" style="font-size:12px">Download full move list (${cs.students_moved})</button></div>
-    ${moveTable}
-    <div class="note" style="margin-top:8px">Door-to-door model: each moved child is picked at home, so the receiving bus detours (max ${maxWalk} m round-trip here) — capped so no bus's existing riders lose more than +10 min. Only ${nb} ${busWord} can be freed within this limit; freeing more would delay the whole fleet. Ride-time uses the nearest new-stop time as a proxy — review before executing.</div>
+    ${perBus}
+    ${stuList}
+    <div style="margin-top:8px"><button class="b-ghost optcsv" data-t="consolidation_moves" style="font-size:12px">Download move list (CSV)</button></div>
+    <div class="note" style="margin-top:8px">Door-to-door model: each child is picked at home, so the receiving bus detours (≤${maxWalk} m round-trip) — capped so its existing riders lose ≤+10 min. Most moved children here actually arrive <b>earlier</b> (leaving an overloaded route). Only ${nb} ${busWord} frees within this limit; freeing more would delay the whole fleet. Review before executing.</div>
   </div>`;
 }
 

@@ -10,6 +10,7 @@ import "./pickup.js";
 import "./temporary.js";
 import "./routes.js";
 import "./optimization.js";
+import "./maintenance.js";
 import "./planner.js";
 import "./reports.js";
 import "./buspage.js";
@@ -146,6 +147,7 @@ document.querySelectorAll('nav button').forEach(btn=>btn.onclick=()=>{
   if(v==='map')openRouteMap();
   if(v==='students')setTimeout(()=>map&&map.invalidateSize(),60);
   if(v==='opt')renderOptimization();
+  if(v==='maint')renderMaintenance();
   if(v==='planner')renderPlanner();
   if(v==='bulk')renderBulk();
   if(v==='reports')renderReports();
