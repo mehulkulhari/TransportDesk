@@ -396,6 +396,7 @@ function buildConsolidationSection(cs, plan){
       freedSet.has(b)?'background:#fdeceb;color:#b42318;text-decoration:line-through':'background:#e7f5ee;color:#087443'}">${b}</span>`).join('');
   const maxWalk = Math.max(0,...plan.map(m=>Number(m.walk_m||0)));
   const maxTime = Math.max(0,...plan.map(m=>Number(m.time_delta||0)));
+  const nb = cs.buses_freed, busWord = nb===1?'bus':'buses';
   const badge = t=>`<span style="background:#eef2f7;border:1px solid var(--edge);border-radius:12px;padding:3px 10px;font-size:12px;margin-right:6px;white-space:nowrap">${t}</span>`;
   const freedTable = `<div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto">
     <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>
@@ -409,13 +410,13 @@ function buildConsolidationSection(cs, plan){
   const moveTable = `<table data-title="consolidation_moves" style="display:none"><tr><td>sr_no</td><td>student_name</td><td>from_bus</td><td>to_bus</td><td>walk_m</td><td>time_delta_min</td></tr>${
     plan.map(m=>`<tr><td>${esc(m.sr_no)}</td><td>${esc(m.student_name)}</td><td>${m.from_bus}</td><td>${m.to_bus}</td><td>${m.walk_m}</td><td>${m.time_delta}</td></tr>`).join('')}</table>`;
   return `<div style="margin-bottom:24px;border:2px solid #087443;border-radius:10px;padding:16px 16px 14px;background:#f6fbf8">
-    <h3 style="margin:0 0 4px;font-size:17px">🚍 Fleet consolidation plan — reshuffle students, free ${cs.buses_freed} buses</h3>
+    <h3 style="margin:0 0 4px;font-size:17px">🚍 Fleet consolidation — free ${nb} ${busWord} without breaking the +10 min limit</h3>
     <div class="note" style="margin-bottom:10px">
-      A fleet-wide reshuffle: <b>${cs.students_moved} students</b> move to a bus that already stops within walking distance, freeing <b>${cs.buses_freed} buses (59 → ${59-cs.buses_freed})</b>.
-      Every move respects bus size, capacity, walking distance and ride-time; seats are freed by chain-moves where a nearer bus is full.
+      Door-to-door reshuffle: <b>${cs.students_moved} students</b> from bus <b>${esc(cs.freed_bus_ids)}</b> move to nearby buses, freeing <b>${nb} ${busWord} (59 → ${59-cs.buses_freed})</b>.
+      This is the conservative plan — only buses whose riders can be absorbed by nearby same-area buses <i>without</i> pushing any bus past +10 min or over capacity. Seats are freed by chain-moves where a nearer bus is full.
     </div>
     <div style="margin-bottom:10px">
-      ${badge('✓ walk ≤ '+maxWalk+' m (size-safe)')}${badge('✓ time ≤ +'+maxTime+' min')}${badge('✓ no bus over capacity')}${badge('✓ '+cs.students_moved+' students moved')}
+      ${badge('✓ door detour ≤ '+maxWalk+' m')}${badge('✓ ride-time ≤ +'+maxTime+' min')}${badge('✓ no bus over capacity')}${badge('✓ same size class')}
     </div>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
       <div><div style="font-size:12px;color:#666">Fleet size</div><div style="font-size:24px;font-weight:800">59 → ${59-cs.buses_freed}</div></div>
@@ -430,7 +431,7 @@ function buildConsolidationSection(cs, plan){
     ${freedTable}
     <div style="margin-top:8px"><button class="b-ghost optcsv" data-t="consolidation_moves" style="font-size:12px">Download full move list (${cs.students_moved})</button></div>
     ${moveTable}
-    <div class="note" style="margin-top:8px">Caveats: receiving buses fill to ~100% (keep 2–3 seats free for new admissions/absences); ride-time uses each student's nearest new-stop time as a proxy; assumes children can walk up to ${maxWalk} m to a stop. Review before executing.</div>
+    <div class="note" style="margin-top:8px">Door-to-door model: each moved child is picked at home, so the receiving bus detours (max ${maxWalk} m round-trip here) — capped so no bus's existing riders lose more than +10 min. Only ${nb} ${busWord} can be freed within this limit; freeing more would delay the whole fleet. Ride-time uses the nearest new-stop time as a proxy — review before executing.</div>
   </div>`;
 }
 
