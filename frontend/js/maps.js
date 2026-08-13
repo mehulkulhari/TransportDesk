@@ -56,20 +56,35 @@ export function decodePolyline(str){
 globalThis.routeLines = {};        // per-bus real-road route polyline (toggled by "Pickup lines")
 globalThis.numLayers = {};         // per-bus pickup-number badges (toggled by "Stop #s")
 globalThis.numsOn = false;
+globalThis.teacherLayer = null;    // morning-only teacher homes (toggled by "Teachers")
 globalThis.studentMarkers = [];    // {sr_no, name, lat, lon, bus, marker} for search
 globalThis.mapHeat = null;
 globalThis.pickupOn = true;
 
 export async function openRouteMap(){
   if(!routeMap){routeMap=L.map('routemap').setView([school?school.latitude:27.578,school?school.longitude:75.137],11);
-    addBaseLayer(routeMap);L.control.scale({imperial:false}).addTo(routeMap);}
+    addBaseLayer(routeMap);L.control.scale({imperial:false}).addTo(routeMap);
+    // the tab can be hidden/animating when Leaflet first measures itself — re-measure on ANY size change
+    try{ new ResizeObserver(()=>routeMap.invalidateSize()).observe(document.getElementById('routemap')); }catch(e){}
+  }
   setTimeout(()=>routeMap.invalidateSize(),60);
   setTimeout(()=>{routeMap.invalidateSize();},350);
   if(mapReady){setTimeout(()=>fitMapChecked&&fitMapChecked(),380);return;}
-  const [data,{data:geo},rideRows]=await Promise.all([
-    fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
-    db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline'),
-    fetchAll('opt_student_fuel','sr_no,ride_km,ride_min')]);
+  let data, geo, rideRows;
+  if(globalThis.tdRound===2){
+    const {data:r2}=await db.from('students_round2')
+      .select('sr_no,name,bus_no,latitude,longitude,pickup_order').eq('active',true);
+    data=(r2||[]).filter(x=>x.latitude!=null).map(x=>({sr_no:x.sr_no,student_name:x.name,bus_id:x.bus_no,
+      pickup_order:x.pickup_order,latitude:x.latitude,longitude:x.longitude,
+      bus_has_depot:false,depot_lat:null,depot_lon:null,road_km_to_school:null,road_min_to_school:null}));
+    geo=[]; rideRows=[];   // cached road shapes + fuel shares are Round-1; Round 2 draws its own straight legs
+  }else{
+    const res=await Promise.all([
+      fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
+      db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline'),
+      fetchAll('opt_student_fuel','sr_no,ride_km,ride_min')]);
+    data=res[0]; geo=res[1].data; rideRows=res[2];
+  }
   const rideBy={};(rideRows||[]).forEach(r=>rideBy[r.sr_no]=r);
   const geoBy={};(geo||[]).forEach(gr=>geoBy[gr.bus_id]=gr);
   const capBy={};(buses||[]).forEach(b=>capBy[b.bus_id]=b.capacity);
@@ -145,6 +160,16 @@ export async function openRouteMap(){
     Object.keys(numLayers).forEach(b=>{const nl=numLayers[b];
       if(numsOn&&checkedBuses.has(String(b)))routeMap.addLayer(nl);else routeMap.removeLayer(nl);});};
   $('goSchool').onclick=()=>{if(school)routeMap.setView([school.latitude,school.longitude],14,{animate:true});};
+  $('tglTeachers').onclick=async ()=>{
+    if(teacherLayer){routeMap.removeLayer(teacherLayer);teacherLayer=null;$('tglTeachers').textContent='Teachers: off';return;}
+    const {data:t}=await db.from('teachers').select('name,latitude,longitude,bus_no').not('latitude','is',null);
+    teacherLayer=L.layerGroup((t||[]).map(x=>
+      L.marker([x.latitude,x.longitude],{icon:L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
+        html:'<div style="font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">🧑\u200d🏫</div>'})})
+        .bindPopup(`<b>${esc(x.name)}</b><br>Teacher · Bus ${esc(x.bus_no||'— not assigned')}<br><span style="font-size:12px;color:#666">rides mornings (Round 1) only</span>`)
+    )).addTo(routeMap);
+    $('tglTeachers').textContent='Teachers: on';
+  };
   $('tglHeat').onclick=()=>toggleHeat(data);
   $('mapStudentGo').onclick=()=>findStudentOnMap($('mapStudentSearch').value);
   $('mapStudentSearch').onkeydown=e=>{if(e.key==='Enter')findStudentOnMap(e.target.value);};

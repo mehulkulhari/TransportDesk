@@ -17,6 +17,7 @@ function goFix(kind, subject){
 }
 
 export async function loadDashboard(){
+  if(globalThis.tdRound===2) return loadDashboardR2();
   const [{data:s},{data:al},{data:dr}]=await Promise.all([
     db.from('dashboard_stats').select('*').single(),
     db.from('alerts').select('*').order('severity',{ascending:false}),
@@ -40,6 +41,32 @@ export async function loadDashboard(){
   document.querySelectorAll('#dashBody .alert[data-i]').forEach(el=>{
     el.onclick=()=>{ const a=(al||[])[Number(el.dataset.i)]; if(a) goFix(a.kind, a.subject); };
   });
+}
+
+async function loadDashboardR2(){
+  const [{data:st},{data:cap}] = await Promise.all([
+    db.from('students_round2').select('sr_no,name,class,bus_no,latitude,longitude').eq('active',true),
+    db.from('bus_capacity').select('bus_id,capacity')]);
+  const rows=st||[]; const capBy={}; (cap||[]).forEach(c=>capBy[c.bus_id]=c.capacity);
+  const byBus={}; rows.forEach(r=>{ (byBus[r.bus_no]=byBus[r.bus_no]||[]).push(r); });
+  const buses=Object.keys(byBus).map(Number).sort((a,b)=>a-b);
+  const dupRows=rows.length-new Set(rows.map(r=>r.sr_no)).size;
+  const noCoords=rows.filter(r=>r.latitude==null).length;
+  const card=(v,l,warn)=>`<div class="stat ${warn&&v>0?'warn':''}"><b>${Number(v).toLocaleString('en-IN')}</b><span>${l}</span></div>`;
+  const busRows=buses.map(b=>{const kids=byBus[b];
+    const cls={}; kids.forEach(k=>cls[(k.class||'?').toUpperCase()]=(cls[(k.class||'?').toUpperCase()]||0)+1);
+    return `<tr><td style="font-weight:600">Bus ${b}</td><td>${kids.length}</td><td>${capBy[b]??'—'}</td>
+      <td style="color:var(--slate)">${Object.entries(cls).sort((a,z)=>z[1]-a[1]).map(([k,v])=>k+' ('+v+')').join(', ')}</td></tr>`;}).join('');
+  $('dashBody').innerHTML=`
+    <h2 style="margin:0 0 12px">Overview — Round 2 <span class="note">(small children · runs after Round 1 in the morning, departs first in the afternoon)</span></h2>
+    <div class="cards">
+      ${card(rows.length,'Round 2 children')}${card(buses.length,'Buses on Round 2')}
+      ${card(rows.length&&buses.length?Math.round(rows.length/buses.length):0,'Avg children / bus')}
+      ${card(noCoords,'Missing coordinates',true)}${card(dupRows,'Duplicate SR rows (to correct)',true)}</div>
+    <h2 style="margin:22px 0 10px">Children per bus <span class="note">(same physical buses as Round 1 — capacity shown is the vehicle's)</span></h2>
+    <div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:auto">
+      <table><thead><tr><th>Bus</th><th>Children</th><th>Seats</th><th>Classes</th></tr></thead><tbody>${busRows}</tbody></table></div>
+    <div class="note" style="margin-top:14px">Alerts and Optimization currently analyse <b>Round 1</b>. Switch back with the toggle in the header.</div>`;
 }
 
 // The nav handler in app.js calls loadDashboard() as a global; expose it.

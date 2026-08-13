@@ -11,6 +11,7 @@ import "./temporary.js";
 import "./routes.js";
 import "./optimization.js";
 import "./maintenance.js";
+import "./teachers.js";
 import "./mapfocus.js";
 import "./planner.js";
 import "./reports.js";
@@ -130,6 +131,24 @@ globalThis.mapReady = false;
 
 globalThis.checkedBuses = new Set();
 
+/* ============ ROUNDS ============ */
+// Round 1 = classes 2-12 (+ teachers, mornings). Round 2 = PG/Nursery/LKG/UKG/1st,
+// run AFTER Round 1 in the morning and FIRST in the afternoon.
+globalThis.tdRound = parseInt(localStorage.getItem('tdRound')||'1',10)===2 ? 2 : 1;
+{
+  const rsw=document.getElementById('roundSwitch');
+  if(rsw)[...rsw.querySelectorAll('button')].forEach(b=>{
+    b.classList.toggle('on', +b.dataset.r===tdRound);
+    b.onclick=()=>{ if(+b.dataset.r===tdRound) return;
+      localStorage.setItem('tdRound', b.dataset.r); location.reload(); };
+  });
+  const strip=document.getElementById('roundStrip');
+  if(strip && tdRound===2){ strip.style.display='block';
+    strip.innerHTML='🚸 <b>Round 2 — small children (PG · Nursery · LKG · UKG · 1st).</b> '+
+      'Dashboard, Route map and Bus page are showing Round 2. '+
+      'Students, Pickup order, Temporary, Optimization and Planner still manage Round 1 data (Round 2 editing opens after the data is corrected).'; }
+}
+
 /* auth */
 $('loginBtn').onclick=async()=>{const b=$('loginBtn');b.disabled=true;$('gateMsg').textContent='Checking…';
   const {error}=await db.auth.signInWithPassword({email:$('em').value.trim(),password:$('pw').value});b.disabled=false;
@@ -149,6 +168,7 @@ document.querySelectorAll('nav button').forEach(btn=>btn.onclick=()=>{
   if(v==='students')setTimeout(()=>map&&map.invalidateSize(),60);
   if(v==='opt')renderOptimization();
   if(v==='maint')renderMaintenance();
+  if(v==='teachers')renderTeachers();
   if(v==='planner')renderPlanner();
   if(v==='bulk')renderBulk();
   if(v==='reports')renderReports();

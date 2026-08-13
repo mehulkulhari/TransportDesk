@@ -43,7 +43,7 @@ tbody tr:hover{background:var(--signal-soft)}
 #gate h1{font-size:20px;margin:0 0 3px}#gate .sub{color:var(--slate);font-size:12.5px;margin-bottom:22px}
 .rule{height:3px;background:var(--signal);width:40px;margin-bottom:18px;border-radius:2px}
 
-#app{display:none;height:100%;grid-template-rows:auto 1fr}
+#app{display:none;height:100%;grid-template-rows:auto auto 1fr}
 header{background:linear-gradient(180deg,var(--ink-2),var(--ink));color:#fff;height:52px;display:flex;align-items:center;gap:4px;padding:0 8px 0 16px;overflow-x:auto;box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 10px rgba(16,28,41,.25)}
 header .brand{font-weight:700;margin-right:8px;white-space:nowrap}header .brand span{color:var(--signal)}
 nav{display:flex;gap:2px}
@@ -121,3 +121,8 @@ summary::before{content:'+';display:inline-block;width:16px;color:var(--signal);
 .mapctl{position:absolute;bottom:14px;left:10px;z-index:600;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-m);padding:7px;display:flex;gap:6px;box-shadow:var(--sh-1)}
 .qbtn{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-s);padding:10px 12px;margin-bottom:7px;transition:border-color var(--tr),box-shadow var(--tr)}
 .qbtn:hover{border-color:var(--signal);box-shadow:var(--sh-1)}
+.roundswitch{display:flex;background:#0d1722;border:1px solid #2a3f53;border-radius:8px;padding:2px;margin:0 10px 0 8px;flex:none}
+.roundswitch button{background:transparent;color:#9fb0c0;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:.02em}
+.roundswitch button:hover{color:#fff}
+.roundswitch button.on{background:var(--signal);color:var(--ink)}
+#roundStrip{background:linear-gradient(90deg,#fff3d6,#fdf1df);border-bottom:1px solid #f0d3a8;color:#7a5300;font-size:12.5px;padding:7px 18px}

@@ -12,12 +12,30 @@ export async function renderBusPage(){
 
 export async function loadBusPage(bus){
   $('bpBody').innerHTML='<div class="hint">Loading…</div>';
-  const [{data:cap},{data:econ},{data:det},{data:roster},{data:fuelSh}]=await Promise.all([
+  if(globalThis.tdRound===2){
+    const [{data:cap},{data:r2}]=await Promise.all([
+      db.from('bus_capacity').select('*').eq('bus_id',bus).single(),
+      db.from('students_round2').select('sr_no,name,class,section').eq('bus_no',bus).eq('active',true).order('name')]);
+    const kids=r2||[];
+    const rws=kids.map((k,i)=>`<tr><td>${i+1}</td><td>${esc(k.name)}</td><td class="mono">${esc(k.sr_no)}</td><td>${esc(k.class||'')}${k.section?'-'+esc(k.section):''}</td></tr>`).join('');
+    $('bpBody').innerHTML=`
+      <div class="cards" style="margin-bottom:16px">
+        <div class="stat"><b>${kids.length}</b><span>Round 2 children</span></div>
+        <div class="stat"><b>${cap?cap.capacity:'—'}</b><span>Vehicle seats</span></div></div>
+      <h3 style="margin:0 0 8px;font-size:15px">Round 2 children on bus ${bus} (${kids.length})</h3>
+      ${kids.length?`<div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:auto">
+        <table><thead><tr><th>#</th><th>Name</th><th>SR</th><th>Class</th></tr></thead><tbody>${rws}</tbody></table></div>`
+        :'<div class="note">This bus has no Round 2 children.</div>'}
+      <div class="note" style="margin-top:10px">Round 2 runs after Round 1 in the morning and departs first in the afternoon. Pickup order for Round 2 comes after data correction. Switch rounds from the header.</div>`;
+    return;
+  }
+  const [{data:cap},{data:econ},{data:det},{data:roster},{data:fuelSh},{data:tchs}]=await Promise.all([
     db.from('bus_capacity').select('*').eq('bus_id',bus).single(),
     db.from('bus_economics').select('*').eq('bus_id',bus).maybeSingle(),
     db.from('bus_details').select('*').eq('bus_id',bus).maybeSingle(),
     db.from('bus_roster').select('sr_no,student_name,pickup_order,road_min_to_school').eq('bus_id',bus).order('pickup_order',{nullsFirst:false}),
-    db.from('opt_student_fuel').select('sr_no,ride_km,ride_min,share_pct,fuel_share').eq('bus_id',bus)]);
+    db.from('opt_student_fuel').select('sr_no,ride_km,ride_min,share_pct,fuel_share').eq('bus_id',bus),
+    db.from('teachers').select('name,emp_code').eq('bus_no',String(bus)).order('name')]);
   const d=det||{};
   const stat=(l,v)=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   const fld=(l,k)=>`<div><label>${l}</label><input id="bd_${k}" value="${esc(d[k]||'')}"/></div>`;
@@ -34,6 +52,10 @@ export async function loadBusPage(bus){
       <div class="grid">${fld('Driver name','driver_name')}${fld('Driver phone','driver_phone')}${fld('Conductor name','conductor_name')}${fld('Conductor phone','conductor_phone')}${fld('Vehicle no.','vehicle_no')}${fld('Model','model')}</div>
       <div class="actions"><button class="b-primary" id="bpSave">Save bus details</button><span class="note" id="bpState"></span></div>
     </div>
+    ${(tchs&&tchs.length)?`<div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:12px 16px;margin-bottom:16px">
+      <h3 style="margin:0 0 6px;font-size:15px">Teachers riding this bus — mornings only (${tchs.length})</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${tchs.map(t=>`<span class="flag" style="background:#eef4ff;border-color:#c9dcf7;color:#1f4d8f">${esc(t.name)}${t.emp_code?' · '+esc(t.emp_code):''}</span>`).join('')}</div>
+      <div class="note" style="margin-top:6px">They come to school with Round 1 and do not travel back with the students.</div></div>`:''}
     <h3 style="margin:0 0 8px;font-size:15px">Today's students (${(roster||[]).length}) — in pickup order</h3>
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table><thead><tr><th>#</th><th>Name</th><th>SR</th><th>Ride to school (along route)</th><th>Ride km</th><th>Fuel share</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   $('bpSave').onclick=async()=>{
