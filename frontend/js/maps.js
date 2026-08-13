@@ -63,7 +63,9 @@ globalThis.pickupOn = true;
 export async function openRouteMap(){
   if(!routeMap){routeMap=L.map('routemap').setView([school?school.latitude:27.578,school?school.longitude:75.137],11);
     addBaseLayer(routeMap);L.control.scale({imperial:false}).addTo(routeMap);}
-  setTimeout(()=>routeMap.invalidateSize(),60);if(mapReady)return;
+  setTimeout(()=>routeMap.invalidateSize(),60);
+  setTimeout(()=>{routeMap.invalidateSize();},350);
+  if(mapReady){setTimeout(()=>fitMapChecked&&fitMapChecked(),380);return;}
   const [data,{data:geo},rideRows]=await Promise.all([
     fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
     db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline'),
