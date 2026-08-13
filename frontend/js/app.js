@@ -1041,7 +1041,26 @@ globalThis.PLACES = {piprali:[27.610,75.146],'radha kishanpura':[27.60,75.16],na
 // the app shell as the anon role — every data query then returned 0 rows.)
 window.addEventListener("DOMContentLoaded", async () => {
     const { data } = await db.auth.getSession();
-    if (data.session) start();
+    if (data.session) { await start(); openFromUrl(); }
 });
+
+// Deep link support so "Map" buttons can open in a NEW TAB:
+//   ?view=map&buses=6,25&sr=4790
+async function openFromUrl(){
+  const p = new URLSearchParams(location.search);
+  const view = p.get('view');
+  if(!view) return;
+  const btn = [...document.querySelectorAll('nav button')].find(b=>b.dataset.view===view);
+  if(!btn) return;
+  btn.click();
+  if(view!=='map') return;
+  const buses = (p.get('buses')||'').split(',').filter(Boolean).map(Number);
+  const sr = p.get('sr');
+  for(let i=0;i<120 && !(globalThis.studentMarkers && studentMarkers.length); i++)
+    await new Promise(r=>setTimeout(r,150));          // wait for map data
+  if(buses.length && globalThis.setCheckedBuses) setCheckedBuses(buses);
+  if(sr && globalThis.findStudentOnMap) findStudentOnMap(String(sr));
+}
+globalThis.openFromUrl = openFromUrl;
 
 Object.assign(globalThis, { $, CSV_HINTS, GOOGLE_MAPS_API_KEY, PLACES, QUESTIONS, SUPABASE_KEY, SUPABASE_URL, adReady, admap, adpin, allMaps, buses, checkedBuses, colorOf, csvKind, csvRows, current, db, esc, googleFailed, googleLayers, googleReady, map, mapLayers, mapReady, pin, repHeat, repHeatMode, repMap, repRoutePts, repStudentPts, routeMap, rs, rupee, school, stimer, ttimer });
