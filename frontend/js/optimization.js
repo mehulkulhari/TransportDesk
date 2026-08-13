@@ -140,7 +140,7 @@ async function loadOptimizationData(){
         {k:'bus_id',label:'Bus'},{k:'students',label:'Students'},
         {k:'now_km',label:'Now km/trip',f:n1},{k:'opt_km',label:'Optimised km',f:n1},
         {k:'save_km',label:'Saved/trip',f:n1},{k:'save_rs',label:'Save /yr',f:rupee},
-        {label:'New pickup order',cell:r=>`<button class="b-ghost seqbtn" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Show order</button>`},
+        {label:'New pickup order',cell:r=>`<button class="b-ghost seqbtn" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Show order</button> ${orderMapBtn(r.bus_id)}`},
         {label:'Status',cell:r=>statusCell('resequence', r.bus_id)},
         {label:'',cell:r=>mapBtn('', r.bus_id)}
       ], rq, 'route_resequencing')
@@ -163,7 +163,7 @@ async function loadOptimizationData(){
         {k:'net_km',label:'Net km/trip',f:n1},
         {k:'net_fuel',label:'Net save /yr',f:rupee},
         {label:'Status',cell:r=>statusCell('abnormal', r.sr_no)},
-        {label:'',cell:r=>`<button class="b-ghost simrow" data-mv="${esc(r.sr_no)} ${esc(r.dest_bus)}" style="font-size:12px;padding:3px 8px">Test</button> ${mapBtn(r.sr_no, r.own_bus+','+r.dest_bus)}`}
+        {label:'',cell:r=>`<button class="b-ghost simrow" data-mv="${esc(r.sr_no)} ${esc(r.dest_bus)}" style="font-size:12px;padding:3px 8px">Test</button> ${focusBtn(r.sr_no, r.own_bus, r.dest_bus)}`}
       ], abn, 'wrong_bus_students')
     ) : '') +
     (clu.length ? section(
@@ -181,7 +181,7 @@ async function loadOptimizationData(){
         {k:'net_fuel',label:'Net save /yr',f:rupee},
         {k:'hosts',label:'Move each to'},
         {label:'Status',cell:r=>statusCell('cluster', r.cluster_id)},
-        {label:'',cell:r=>mapBtn('', r.own_bus)}
+        {label:'',cell:r=>focusBtn(r.sr_list, r.own_bus, (String(r.hosts).match(/->(\d+)/)||[])[1], 'Show group ↗')}
       ], clu, 'grouped_students')
     ) : '') +
     (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan, cbus) : '') +
@@ -293,6 +293,7 @@ function wireRowButtons(){
       <b>Bus ${esc(bus)} — new pickup order (${list.length} stops)</b>
       <ol style="margin:6px 0 0;padding-left:22px;font-size:13px;columns:2">${
         list.map(sr=>`<li>${esc(nameOf[sr]||'')} <span class="mono" style="color:#888">${esc(sr)}</span></li>`).join('')}</ol></div>`;
+    out.scrollIntoView({behavior:'smooth', block:'center'});
   });
   document.querySelectorAll('.simrow').forEach(b=>b.onclick=()=>{
     $('simInput').value = b.dataset.mv;
@@ -348,6 +349,19 @@ function optTable(cols, rows, title){
 const csvBtn = t => `<div style="margin:6px 0 2px"><button class="b-ghost optcsv" data-t="${esc(t)}" style="font-size:12px">Download CSV</button></div>`;
 
 // "Map" link — opens the Route map in a NEW TAB, pre-focused on this student + buses
+// link that opens the map in a new tab and HIGHLIGHTS a proposed move
+const focusBtn = (srs, ownBus, destBus, label) => {
+  const q = new URLSearchParams({view:'map'});
+  q.set('buses', [ownBus,destBus].filter(Boolean).join(','));
+  q.set('srs', String(srs));
+  if(destBus) q.set('dest', String(destBus));
+  return `<a class="b-ghost" href="?${q.toString()}" target="_blank" rel="noopener"
+    style="font-size:12px;padding:3px 8px;text-decoration:none;display:inline-block">${label||'Show on map ↗'}</a>`;
+};
+// link that opens the map showing a bus's NEW pickup order
+const orderMapBtn = (bus) => `<a class="b-ghost" href="?view=map&buses=${bus}&order=${bus}" target="_blank" rel="noopener"
+    style="font-size:12px;padding:3px 8px;text-decoration:none;display:inline-block">Order on map ↗</a>`;
+
 const mapBtn = (sr, buses) => {
   const q = new URLSearchParams({view:'map'});
   if(buses) q.set('buses', String(buses));

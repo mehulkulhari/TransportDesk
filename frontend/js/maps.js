@@ -123,6 +123,7 @@ export async function openRouteMap(){
     row.querySelector('.nm').onclick=e=>{e.preventDefault();isolate(bus);};});
 
   mapReady=true;
+  if(globalThis.enableStopFanOut) enableStopFanOut();
   $('mapSelAllLink').onclick=e=>{e.preventDefault();busIds.forEach(b=>toggleBus(b,true));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=true);fitMap();};
   $('mapDeselLink').onclick=e=>{e.preventDefault();busIds.forEach(b=>toggleBus(b,false));[...leg.querySelectorAll('.legchk')].forEach(c=>c.checked=false);};
   $('mapFit').onclick=fitMapChecked;

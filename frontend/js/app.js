@@ -11,6 +11,7 @@ import "./temporary.js";
 import "./routes.js";
 import "./optimization.js";
 import "./maintenance.js";
+import "./mapfocus.js";
 import "./planner.js";
 import "./reports.js";
 import "./buspage.js";
@@ -1059,6 +1060,11 @@ async function openFromUrl(){
   for(let i=0;i<120 && !(globalThis.studentMarkers && studentMarkers.length); i++)
     await new Promise(r=>setTimeout(r,150));          // wait for map data
   if(buses.length && globalThis.setCheckedBuses) setCheckedBuses(buses);
+  const srs = (p.get('srs')||'').split(',').filter(Boolean);
+  const dest = p.get('dest');
+  const order = p.get('order');
+  if(order && globalThis.showNewOrder){ await showNewOrder(Number(order)); return; }
+  if(srs.length && globalThis.focusMove){ focusMove(srs, dest?Number(dest):null); return; }
   if(sr && globalThis.findStudentOnMap) findStudentOnMap(String(sr));
 }
 globalThis.openFromUrl = openFromUrl;
