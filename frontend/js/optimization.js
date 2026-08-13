@@ -1,3 +1,4 @@
+import { GOOGLE_DIRECTIONS_KEY } from "./config.js";
 // Optimization analysis engine.
 // Reads precomputed snapshot tables (instant, never times out) and provides a
 // live what-if simulator. Recalculation is chunked into sub-8s RPC calls so it
@@ -67,7 +68,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal, cluster] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal, cluster, overcap, stopMerge, villageStops, fuelShares] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -88,7 +89,11 @@ async function loadOptimizationData(){
     db.from('opt_consolidation_bus').select('*'),
     db.from('opt_resequence').select('*').order('save_rs',{ascending:false}),
     db.from('opt_abnormal').select('*').order('net_fuel',{ascending:false}),
-    db.from('opt_cluster').select('*').order('net_fuel',{ascending:false})
+    db.from('opt_cluster').select('*').order('net_fuel',{ascending:false}),
+    db.from('opt_overcap').select('*').order('bus_id'),
+    db.from('opt_stop_merge').select('*').order('annual_saving',{ascending:false}),
+    db.from('opt_village_stops').select('*').order('annual_saving',{ascending:false}),
+    db.from('opt_student_fuel').select('fuel_share')
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -116,13 +121,27 @@ async function loadOptimizationData(){
   const abnSaving = abn.reduce((a,r)=>a+Number(r.net_fuel||0),0);
   const clu = cluster.data || [];
   const cluSaving = clu.reduce((a,r)=>a+Number(r.net_fuel||0),0);
+  const oc = overcap.data || [];
+  const ocBuses = new Set(oc.map(r=>r.bus_id));
+  const ocOver = [...ocBuses].reduce((a,b)=>a+Number((oc.find(r=>r.bus_id===b)||{}).over_by||0),0);
+  const sm = stopMerge.data || [];
+  const smStops = sm.reduce((a,r)=>a+Number(r.events_saved_per_trip||0),0);
+  const smRs = sm.reduce((a,r)=>a+Number(r.annual_saving||0),0);
+  const vs = villageStops.data || [];
+  const vsRs = vs.reduce((a,r)=>a+Number(r.annual_saving||0),0);
+  const fuAll = (fuelShares.data||[]).map(r=>Number(r.fuel_share||0));
+  const fuAvg = fuAll.length ? fuAll.reduce((a,b)=>a+b,0)/fuAll.length : 0;
 
   $('optCards').innerHTML = [
+    ocBuses.size ? card('⚠ Over capacity', ocBuses.size+' buses', ocOver+' children beyond seats — fix first') : '',
+    card('Fuel / student', rupee(Math.round(fuAvg))+'/yr', 'usage-based share of the bus'),
     rq.length ? card('Re-sequence routes', rq.length+' buses', rupee(rqSaving)+'/yr · no student moves') : '',
     cs&&cs.buses_freed>0 ? card('Consolidate fleet', '59→'+(59-cs.buses_freed), '−'+cs.buses_freed+' bus'+(cs.buses_freed>1?'es':'')+' · '+rupee(cs.fuel_saved)+' fuel + drivers') : '',
     fleetSwaps.length ? card('Vehicle swaps', fleetSwaps.length, rupee(fleetSaving)+'/yr fuel') : '',
     abn.length ? card('Wrong-bus students', abn.length, rupee(abnSaving)+'/yr net') : '',
     clu.length ? card('Grouped moves', clu.length+' groups', rupee(cluSaving)+'/yr net') : '',
+    sm.length ? card('Merge close stops', '−'+smStops+' stops/trip', rupee(smRs)+'/yr est.') : '',
+    vs.length ? card('Village stops', vs.length+' far buses', rupee(vsRs)+'/yr') : '',
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
     card('Depot swaps', (depot.data||[]).length, rupee((depot.data||[]).reduce((a,r)=>a+Number(r.annual_fuel_saving||0),0))+'/yr'),
     card('Fleet use', m.fleet_utilisation_pct+'%', m.buses_running+' buses'),
@@ -130,6 +149,22 @@ async function loadOptimizationData(){
   ].join('');
 
   $('optTables').innerHTML =
+    (oc.length ? `<div style="margin-bottom:24px;border:2px solid #b42318;border-radius:10px;padding:14px 16px;background:#fdf3f2">
+      <h3 style="margin:0 0 4px;font-size:16px;color:#b42318">⚠ Buses over seating capacity — fix before anything else</h3>
+      <div class="note" style="margin-bottom:8px">${ocBuses.size} buses carry more children than they have seats (real seats, no allowance).
+      For each, these are the cheapest legal moves: a nearby bus with a genuinely free seat, a stop within 800 m and ≥2 stops within 1.5 km absorbs the child with the least added distance.
+      Rows marked <b>manual</b> have no feasible nearby bus — those need a human decision.</div>
+      ${optTable([
+        {k:'bus_id',label:'Bus'},{k:'over_by',label:'Over by'},
+        {k:'student_name',label:'Move this child'},
+        {k:'to_bus',label:'To bus',f:v=>v??'— manual —'},
+        {k:'near_m',label:'It stops within',f:v=>v!=null?v+' m':'—'},
+        {k:'add_km',label:'Adds km/trip',f:v=>v!=null?n1(v):'—'},
+        {k:'add_fuel',label:'Adds fuel /yr',f:v=>v!=null?rupee(v):'—'},
+        {label:'Status',cell:r=>r.sr_no?statusCell('overcap', r.sr_no):''},
+        {label:'',cell:r=>r.sr_no?focusBtn(r.sr_no, r.bus_id, r.to_bus):''}
+      ], oc, 'over_capacity')}
+    </div>` : '') +
     (rq.length ? section(
       '🔀 Re-sequence pickup order — the biggest clean win',
       `<b>No child changes bus.</b> These routes visit their stops in a wasteful order (zig-zagging back and forth). `+
@@ -140,7 +175,7 @@ async function loadOptimizationData(){
         {k:'bus_id',label:'Bus'},{k:'students',label:'Students'},
         {k:'now_km',label:'Now km/trip',f:n1},{k:'opt_km',label:'Optimised km',f:n1},
         {k:'save_km',label:'Saved/trip',f:n1},{k:'save_rs',label:'Save /yr',f:rupee},
-        {label:'New pickup order',cell:r=>`<button class="b-ghost seqbtn" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Show order</button> ${orderMapBtn(r.bus_id)}`},
+        {label:'New pickup order',cell:r=>`<button class="b-ghost seqbtn" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Show order</button> ${orderMapBtn(r.bus_id)} <button class="b-ghost gverify" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Verify real km</button><div class="gvout" data-bus="${r.bus_id}" style="font-size:12px;margin-top:3px"></div>`},
         {label:'Status',cell:r=>statusCell('resequence', r.bus_id)},
         {label:'',cell:r=>mapBtn('', r.bus_id)}
       ], rq, 'route_resequencing')
@@ -183,6 +218,33 @@ async function loadOptimizationData(){
         {label:'Status',cell:r=>statusCell('cluster', r.cluster_id)},
         {label:'',cell:r=>focusBtn(r.sr_list, r.own_bus, (String(r.hosts).match(/->(\d+)/)||[])[1], 'Show group ↗')}
       ], clu, 'grouped_students')
+    ) : '') +
+    (sm.length ? section(
+      '🛑 Merge stops a few doors apart — fewer stop-starts',
+      `Every halt burns extra diesel (re-accelerating the bus + idling ≈ <b>0.025–0.035 L per stop</b>, a physics-based estimate sized to the bus). `+
+      `These are stops on the <b>same bus</b> within <b>120 m walking</b> of a busier stop: combine them and the fleet makes ${smStops} fewer halts every trip ≈ <b>${rupee(smRs)}/yr</b>. `+
+      `No route or bus change — children walk at most 120 m along their own street.`,
+      optTable([
+        {k:'bus_id',label:'Bus'},{k:'stops_now',label:'Stops now',f:v=>v+' → 1'},
+        {k:'students',label:'Children'},{k:'keep_sr',label:'Keep stop at (SR)'},
+        {k:'max_walk_m',label:'Max walk',f:v=>v+' m'},
+        {k:'annual_saving',label:'Save /yr (est.)',f:rupee},
+        {label:'Status',cell:r=>statusCell('stopmerge', r.bus_id+'-'+r.cluster_id)},
+        {label:'',cell:r=>mapBtn(r.keep_sr, r.bus_id)}
+      ], sm, 'stop_merges')
+    ) : '') +
+    (vs.length ? section(
+      '🏘 Village-centre stops on the far routes',
+      `On routes longer than 30 km the bus threads door-to-door inside each hamlet. Halting <b>once per pocket</b> (at the most central child, others walking ≤250 m) `+
+      `sheds the lane-weaving below — computed on the current pickup order with the real road factor. A policy change for the village runs, worth <b>${rupee(vsRs)}/yr</b>.`,
+      optTable([
+        {k:'bus_id',label:'Bus'},{k:'pockets',label:'Hamlet pockets'},
+        {k:'students_walking',label:'Children walking'},{k:'max_walk_m',label:'Max walk',f:v=>v+' m'},
+        {k:'save_km',label:'Lane km shed /trip',f:n1},
+        {k:'annual_saving',label:'Save /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('village', r.bus_id)},
+        {label:'',cell:r=>mapBtn('', r.bus_id)}
+      ], vs, 'village_stops')
     ) : '') +
     (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan, cbus) : '') +
     (fleetSwaps.length ? section(
@@ -279,6 +341,7 @@ function studentFixTable(rows){
 }
 
 function wireRowButtons(){
+  document.querySelectorAll('.gverify').forEach(b=>b.onclick=()=>verifySeq(b.dataset.bus, b));
   document.querySelectorAll('.seqbtn').forEach(b=>b.onclick=async ()=>{
     const bus=b.dataset.bus;
     const out=$('seqOut'); out.innerHTML='<div class="hint">Loading order…</div>';
@@ -505,6 +568,60 @@ function buildConsolidationSection(cs, plan, cbus){
   </div>`;
 }
 
+/* ---------- real-road verification of a proposed order (Google Directions, in-browser) ---------- */
+let _gmapsP=null;
+function loadGmaps(){
+  if(_gmapsP) return _gmapsP;
+  _gmapsP=new Promise((res,rej)=>{
+    if(globalThis.google&&google.maps&&google.maps.DirectionsService){res();return;}
+    const sc=document.createElement('script');
+    sc.src=`https://maps.googleapis.com/maps/api/js?key=${GOOGLE_DIRECTIONS_KEY}`;
+    sc.onload=()=>res(); sc.onerror=()=>rej(new Error('Google Maps failed to load'));
+    document.head.appendChild(sc);
+  });
+  return _gmapsP;
+}
+function gRoute(svc, origin, waypoints, destination){
+  return new Promise((res,rej)=>svc.route({
+    origin, destination, waypoints: waypoints.map(l=>({location:l, stopover:true})),
+    travelMode:'DRIVING', optimizeWaypoints:false
+  },(r,st)=>st==='OK'?res(r):rej(new Error('Directions: '+st))));
+}
+async function chainRoadKm(nodes){       // nodes: [{lat,lng},...] full path incl. origin+dest
+  const svc=new google.maps.DirectionsService();
+  let km=0, min=0, i=0;
+  while(i<nodes.length-1){
+    const seg=nodes.slice(i, Math.min(i+25, nodes.length));  // origin + <=23 waypoints + dest
+    const r=await gRoute(svc, seg[0], seg.slice(1,-1), seg[seg.length-1]);
+    r.routes[0].legs.forEach(l=>{km+=l.distance.value/1000; min+=l.duration.value/60;});
+    i+=seg.length-1;
+    if(i<nodes.length-1) await new Promise(t=>setTimeout(t,250));
+  }
+  return [km,min];
+}
+async function verifySeq(bus, btn){
+  const out=document.querySelector(`.gvout[data-bus="${bus}"]`);
+  btn.disabled=true; out.textContent='Checking real roads…';
+  try{
+    await loadGmaps();
+    const [{data:rq},{data:stu},{data:bs}] = await Promise.all([
+      db.from('opt_resequence').select('new_order').eq('bus_id',bus).single(),
+      db.from('students').select('sr_no,latitude,longitude,pickup_order').eq('bus_no',bus).eq('active',true).not('latitude','is',null),
+      db.from('buses').select('start_latitude,start_longitude,mileage').eq('bus_id',bus).single()
+    ]);
+    const bySr={}; stu.forEach(x=>bySr[x.sr_no]={lat:x.latitude,lng:x.longitude});
+    const schoolLL={lat:school.latitude,lng:school.longitude};
+    const origin=(bs.start_latitude!=null)?{lat:bs.start_latitude,lng:bs.start_longitude}:schoolLL;
+    const curNodes=[origin,...stu.slice().sort((a,b)=>(a.pickup_order??9999)-(b.pickup_order??9999)).map(x=>({lat:x.latitude,lng:x.longitude})),schoolLL];
+    const propNodes=[origin,...rq.new_order.split(';').map(sr=>bySr[sr]).filter(Boolean),schoolLL];
+    const [ck,cm]=await chainRoadKm(curNodes);
+    const [pk,pm]=await chainRoadKm(propNodes);
+    const dKm=ck-pk, dRs=dKm*2*200/(bs.mileage||6)*100;
+    out.innerHTML=`<b style="color:${dKm>0?'#087443':'#b42318'}">Real roads: ${ck.toFixed(1)} → ${pk.toFixed(1)} km</b> (${dKm>0?'saves':'costs'} ${Math.abs(dKm).toFixed(1)} km/trip ≈ ${rupee(Math.abs(Math.round(dRs)))}/yr) · ${Math.round(cm)} → ${Math.round(pm)} min`;
+  }catch(e){ out.innerHTML='<span style="color:#b42318">'+esc(e.message)+'</span>'; }
+  btn.disabled=false;
+}
+
 /* ---------- simulator (fixed keys + response shape) ---------- */
 async function runSim(text){
   const moves = (text||'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
@@ -580,6 +697,10 @@ async function recalcAll(){
     ['Analysing students…',       'refresh_student_fix'],
     ['Routes, corridors, depots…','recalc_light'],
     ['Consolidation…',            'recalc_merge'],
+    ['Fuel per student…',         'refresh_student_fuel'],
+    ['Capacity check…',           'refresh_overcap'],
+    ['Stop merges…',              'refresh_stop_merge'],
+    ['Village stops…',            'refresh_village_stops'],
     ['Summarising…',              'recalc_master']
   ];
   let failed = [];

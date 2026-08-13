@@ -12,19 +12,22 @@ export async function renderBusPage(){
 
 export async function loadBusPage(bus){
   $('bpBody').innerHTML='<div class="hint">Loading…</div>';
-  const [{data:cap},{data:econ},{data:det},{data:roster}]=await Promise.all([
+  const [{data:cap},{data:econ},{data:det},{data:roster},{data:fuelSh}]=await Promise.all([
     db.from('bus_capacity').select('*').eq('bus_id',bus).single(),
     db.from('bus_economics').select('*').eq('bus_id',bus).maybeSingle(),
     db.from('bus_details').select('*').eq('bus_id',bus).maybeSingle(),
-    db.from('bus_roster').select('sr_no,student_name,pickup_order,road_min_to_school').eq('bus_id',bus).order('pickup_order',{nullsFirst:false})]);
+    db.from('bus_roster').select('sr_no,student_name,pickup_order,road_min_to_school').eq('bus_id',bus).order('pickup_order',{nullsFirst:false}),
+    db.from('opt_student_fuel').select('sr_no,ride_km,share_pct,fuel_share').eq('bus_id',bus)]);
   const d=det||{};
   const stat=(l,v)=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   const fld=(l,k)=>`<div><label>${l}</label><input id="bd_${k}" value="${esc(d[k]||'')}"/></div>`;
-  const rows=(roster||[]).map(r=>`<tr><td>${r.pickup_order??'—'}</td><td>${esc(r.student_name)}</td><td class="mono">${esc(r.sr_no)}</td><td>${r.road_min_to_school!=null?r.road_min_to_school+' min':'—'}</td></tr>`).join('');
+  const fuelBy={}; (fuelSh||[]).forEach(f=>fuelBy[f.sr_no]=f);
+  const rows=(roster||[]).map(r=>{const f=fuelBy[r.sr_no]||{};
+    return `<tr><td>${r.pickup_order??'—'}</td><td>${esc(r.student_name)}</td><td class="mono">${esc(r.sr_no)}</td><td>${r.road_min_to_school!=null?r.road_min_to_school+' min':'—'}</td><td>${f.ride_km!=null?f.ride_km+' km':'—'}</td><td>${f.fuel_share!=null?rs(f.fuel_share)+'/yr':'—'}</td></tr>`;}).join('');
   $('bpBody').innerHTML=`
     <div class="cards" style="margin-bottom:16px">
-      ${stat('Students',cap.riders)}${stat('Capacity',cap.capacity)}${stat('Effective cap',cap.effective_capacity)}
-      ${stat('Seats free',Math.max(cap.effective_capacity-cap.riders,0))}
+      ${stat('Students',cap.riders)}${stat('Capacity',cap.capacity)}
+      ${cap.riders>cap.capacity?`<div class="stat" style="border:2px solid #b42318"><b style="color:#b42318">${cap.riders-cap.capacity} OVER</b><span>capacity!</span></div>`:stat('Seats free',cap.capacity-cap.riders)}
       ${econ?stat('Road km/trip',econ.road_km_per_trip):''}${econ?stat('Annual fuel',rs(econ.annual_fuel_cost)):''}</div>
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:16px;margin-bottom:16px;max-width:640px">
       <h3 style="margin:0 0 10px;font-size:15px">Driver, conductor &amp; vehicle</h3>
@@ -32,7 +35,7 @@ export async function loadBusPage(bus){
       <div class="actions"><button class="b-primary" id="bpSave">Save bus details</button><span class="note" id="bpState"></span></div>
     </div>
     <h3 style="margin:0 0 8px;font-size:15px">Today's students (${(roster||[]).length}) — in pickup order</h3>
-    <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table><thead><tr><th>#</th><th>Name</th><th>SR</th><th>To school</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table><thead><tr><th>#</th><th>Name</th><th>SR</th><th>To school</th><th>Ride along route</th><th>Fuel share</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   $('bpSave').onclick=async()=>{
     const rec={bus_id:bus};['driver_name','driver_phone','conductor_name','conductor_phone','vehicle_no','model'].forEach(k=>rec[k]=$('bd_'+k).value.trim()||null);
     const {error}=await db.from('bus_details').upsert(rec);
