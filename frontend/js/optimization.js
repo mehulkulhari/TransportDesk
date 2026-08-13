@@ -67,7 +67,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -85,7 +85,9 @@ async function loadOptimizationData(){
     db.from('opt_fleet_assign_summary').select('*').maybeSingle(),
     db.from('opt_consolidation_summary').select('*').maybeSingle(),
     db.from('opt_consolidation_plan').select('*'),
-    db.from('opt_consolidation_bus').select('*')
+    db.from('opt_consolidation_bus').select('*'),
+    db.from('opt_resequence').select('*').order('save_rs',{ascending:false}),
+    db.from('opt_abnormal').select('*').order('net_fuel',{ascending:false})
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -107,11 +109,16 @@ async function loadOptimizationData(){
   const cs = consSum.data;
   const cplan = consPlan.data || [];
   const cbus = consBus.data || [];
+  const rq = reseq.data || [];
+  const rqSaving = rq.reduce((a,r)=>a+Number(r.save_rs||0),0);
+  const abn = abnormal.data || [];
+  const abnSaving = abn.reduce((a,r)=>a+Number(r.net_fuel||0),0);
 
   $('optCards').innerHTML = [
+    rq.length ? card('Re-sequence routes', rq.length+' buses', rupee(rqSaving)+'/yr · no student moves') : '',
     cs&&cs.buses_freed>0 ? card('Consolidate fleet', '59→'+(59-cs.buses_freed), '−'+cs.buses_freed+' bus'+(cs.buses_freed>1?'es':'')+' · '+rupee(cs.fuel_saved)+' fuel + drivers') : '',
     fleetSwaps.length ? card('Vehicle swaps', fleetSwaps.length, rupee(fleetSaving)+'/yr fuel') : '',
-    card('Students to move', sfFeasible.length, rupee(sfTotal)+'/yr net'),
+    abn.length ? card('Wrong-bus students', abn.length, rupee(abnSaving)+'/yr net') : '',
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
     card('Depot swaps', (depot.data||[]).length, rupee((depot.data||[]).reduce((a,r)=>a+Number(r.annual_fuel_saving||0),0))+'/yr'),
     card('Fleet use', m.fleet_utilisation_pct+'%', m.buses_running+' buses'),
@@ -119,6 +126,39 @@ async function loadOptimizationData(){
   ].join('');
 
   $('optTables').innerHTML =
+    (rq.length ? section(
+      '🔀 Re-sequence pickup order — the biggest clean win',
+      `<b>No child changes bus.</b> These routes visit their stops in a wasteful order (zig-zagging back and forth). `+
+      `Driving the SAME students in an optimised order cuts <b>${rupee(rqSaving)}/yr</b> of diesel across ${rq.length} buses — `+
+      `${n1(rq.reduce((a,r)=>a+Number(r.save_km||0),0))} km saved every trip. Bus 43 alone drops from 36 km to 18 km. `+
+      `Download a bus's new order and hand it to the driver. <i>Order is optimised on distance; check the sequence is drivable (one-ways, school-time) before rollout.</i>`,
+      optTable([
+        {k:'bus_id',label:'Bus'},{k:'students',label:'Students'},
+        {k:'now_km',label:'Now km/trip',f:n1},{k:'opt_km',label:'Optimised km',f:n1},
+        {k:'save_km',label:'Saved/trip',f:n1},{k:'save_rs',label:'Save /yr',f:rupee},
+        {label:'New pickup order',cell:r=>`<button class="b-ghost seqbtn" data-bus="${r.bus_id}" style="font-size:12px;padding:3px 8px">Show order</button>`},
+        {label:'Status',cell:r=>statusCell('resequence', r.bus_id)},
+        {label:'',cell:r=>mapBtn('', r.bus_id)}
+      ], rq, 'route_resequencing')
+      + `<div id="seqOut" style="margin-top:8px"></div>`
+    ) : '') +
+    (abn.length ? section(
+      '🎯 Students on the wrong bus — another bus already passes them',
+      `Each child here genuinely costs their own bus a detour <i>even when picked in the best possible order</i>, while another bus `+
+      `<b>with a free seat</b> already stops within ${Math.max(...abn.map(r=>Number(r.near_m||0)))} m of their door. `+
+      `Net <b>${rupee(abnSaving)}/yr</b> across ${abn.length} students (the receiving bus's added cost is already subtracted). `+
+      `Cases where the detour is only caused by a bad pickup order are excluded — those are fixed by re-sequencing above.`,
+      optTable([
+        {k:'sr_no',label:'SR'},{k:'student_name',label:'Name'},{k:'class',label:'Class'},
+        {k:'own_bus',label:'Now on bus'},{k:'dest_bus',label:'Move to bus'},
+        {k:'near_m',label:'That bus stops within',f:v=>v+' m'},
+        {k:'optimal_marginal_km',label:'Costs own bus',f:v=>n1(v)+' km'},
+        {k:'ins_km',label:'Adds to new bus',f:v=>n1(v)+' km'},
+        {k:'net_fuel',label:'Net save /yr',f:rupee},
+        {label:'Status',cell:r=>statusCell('abnormal', r.sr_no)},
+        {label:'',cell:r=>`<button class="b-ghost simrow" data-mv="${esc(r.sr_no)} ${esc(r.dest_bus)}" style="font-size:12px;padding:3px 8px">Test</button> ${mapBtn(r.sr_no, r.own_bus+','+r.dest_bus)}`}
+      ], abn, 'wrong_bus_students')
+    ) : '') +
     (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan, cbus) : '') +
     (fleetSwaps.length ? section(
       '🔧 Vehicle swaps — swap two same-size buses so the efficient one runs the longer route',
@@ -132,12 +172,6 @@ async function loadOptimizationData(){
         {label:'Status',cell:r=>statusCell('fleet_swap', r.bus_a+'-'+r.bus_b)}
       ], fleetSwaps, 'vehicle_swaps')
     ) : '') +
-    section(
-      'Students to move — the highest-value fixes',
-      `Each row is one child whose bus makes a costly detour for them while another bus (with a free seat) already passes close. `+
-      `<b>Net /yr</b> already subtracts the cost the receiving bus takes on. "Feasible" means that bus has room today.`,
-      studentFixTable(sf)
-    ) +
     section(
       'What far students cost — fee guidance',
       `The real extra fuel each far-flung student burns per year (their marginal road distance × 2 trips × 200 days ÷ mileage × ₹100/L). `+
@@ -220,6 +254,21 @@ function studentFixTable(rows){
 }
 
 function wireRowButtons(){
+  document.querySelectorAll('.seqbtn').forEach(b=>b.onclick=async ()=>{
+    const bus=b.dataset.bus;
+    const out=$('seqOut'); out.innerHTML='<div class="hint">Loading order…</div>';
+    const [{data:rq},{data:stu}] = await Promise.all([
+      db.from('opt_resequence').select('new_order').eq('bus_id',bus).maybeSingle(),
+      db.from('students').select('sr_no,name').eq('bus_no',bus).eq('active',true)
+    ]);
+    if(!rq||!rq.new_order){ out.innerHTML='<div class="note">No order stored.</div>'; return; }
+    const nameOf={}; (stu||[]).forEach(s=>nameOf[s.sr_no]=s.name);
+    const list=rq.new_order.split(';');
+    out.innerHTML=`<div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:10px 12px">
+      <b>Bus ${esc(bus)} — new pickup order (${list.length} stops)</b>
+      <ol style="margin:6px 0 0;padding-left:22px;font-size:13px;columns:2">${
+        list.map(sr=>`<li>${esc(nameOf[sr]||'')} <span class="mono" style="color:#888">${esc(sr)}</span></li>`).join('')}</ol></div>`;
+  });
   document.querySelectorAll('.simrow').forEach(b=>b.onclick=()=>{
     $('simInput').value = b.dataset.mv;
     runSim(b.dataset.mv);
