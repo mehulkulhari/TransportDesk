@@ -54,6 +54,8 @@ export function decodePolyline(str){
 }
 
 globalThis.routeLines = {};        // per-bus real-road route polyline (toggled by "Pickup lines")
+globalThis.numLayers = {};         // per-bus pickup-number badges (toggled by "Stop #s")
+globalThis.numsOn = false;
 globalThis.studentMarkers = [];    // {sr_no, name, lat, lon, bus, marker} for search
 globalThis.mapHeat = null;
 globalThis.pickupOn = true;
@@ -62,9 +64,11 @@ export async function openRouteMap(){
   if(!routeMap){routeMap=L.map('routemap').setView([school?school.latitude:27.578,school?school.longitude:75.137],11);
     addBaseLayer(routeMap);L.control.scale({imperial:false}).addTo(routeMap);}
   setTimeout(()=>routeMap.invalidateSize(),60);if(mapReady)return;
-  const [data,{data:geo}]=await Promise.all([
+  const [data,{data:geo},rideRows]=await Promise.all([
     fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
-    db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline')]);
+    db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline'),
+    fetchAll('opt_student_fuel','sr_no,ride_km,ride_min')]);
+  const rideBy={};(rideRows||[]).forEach(r=>rideBy[r.sr_no]=r);
   const geoBy={};(geo||[]).forEach(gr=>geoBy[gr.bus_id]=gr);
   const capBy={};(buses||[]).forEach(b=>capBy[b.bus_id]=b.capacity);
   const byBus={};data.forEach(s=>{if(s.latitude==null)return;(byBus[s.bus_id]=byBus[s.bus_id]||{stops:[],depot:s.bus_has_depot?[s.depot_lat,s.depot_lon]:null}).stops.push(s);});
@@ -92,8 +96,10 @@ export async function openRouteMap(){
     const rl=L.polyline(routeCoords,{color:col,weight:3,opacity:.82,interactive:false});
     routeLines[bus]=rl; if(pickupOn) rl.addTo(routeMap);
     order.forEach((s,i)=>{
-      const road = s.road_min_to_school!=null ? `${s.road_min_to_school} min · ${s.road_km_to_school} km by road to school`
-                   : `${hav(s.latitude,s.longitude,school.latitude,school.longitude).toFixed(1)} km straight-line to school`;
+      const rd = rideBy[String(s.sr_no)]||rideBy[s.sr_no];
+      const road = rd ? `${rd.ride_min} min · ${rd.ride_km} km along the route to school`
+                 : (s.road_min_to_school!=null ? `${s.road_min_to_school} min · ${s.road_km_to_school} km by road to school`
+                   : `${hav(s.latitude,s.longitude,school.latitude,school.longitude).toFixed(1)} km straight-line to school`);
       const m=L.circleMarker([s.latitude,s.longitude],{radius:6,weight:1,color:'#1f2933',opacity:.85,fillColor:col,fillOpacity:.9});
       m.bindPopup(`<b>${esc(s.student_name)}</b><br><span class="legdot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:4px"></span>Bus ${bus} · pickup #${i+1}<br><span class="mono">SR ${esc(s.sr_no)}</span><br>${road}<br><a href="#" data-nearest="${s.latitude},${s.longitude}" data-bus="${bus}">Show this bus + 3 nearest ▾</a><div class="nearbox"></div>`);
       m.on('popupopen',ev=>{const el=ev.popup.getElement().querySelector('a[data-nearest]');if(!el)return;
@@ -106,6 +112,9 @@ export async function openRouteMap(){
             others.map(r=>`Bus ${r.bus_id} · ${r.detour_km} km detour · ${r.seats_left} seats${r.has_room?'':' (full)'}`).join('<br>');};});
       m.addTo(g);
       studentMarkers.push({sr_no:String(s.sr_no),name:(s.student_name||'').toLowerCase(),display:s.student_name,lat:s.latitude,lon:s.longitude,bus,marker:m});
+      (numLayers[bus]=numLayers[bus]||L.layerGroup()).addLayer(
+        L.marker([s.latitude,s.longitude],{interactive:false,icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,22],html:
+          `<div style="width:18px;height:18px;border-radius:50%;background:#fff;border:2px solid ${col};color:${col};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;box-shadow:0 1px 3px rgba(0,0,0,.35)">${i+1}</div>`})}));
     });
     if(info.depot)L.marker(info.depot,{icon:L.divIcon({className:'',html:`<div style="width:12px;height:12px;background:${col};border:2px solid #fff;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`,iconSize:[14,14],iconAnchor:[7,7]})}).addTo(g).bindPopup('Bus '+bus+' — start point');
     mapLayers[bus]=g;
@@ -130,15 +139,19 @@ export async function openRouteMap(){
   $('busFilter').oninput=e=>{const q=e.target.value.trim();[...leg.querySelectorAll('.legrow')].forEach(r=>{r.style.display=(!q||('bus '+r.dataset.bus).includes(q.toLowerCase())||r.dataset.bus===q)?'':'none';});};
   $('legHide').onclick=e=>{e.preventDefault();const t=$('legTools');const hidden=t.style.display==='none';t.style.display=hidden?'':'none';e.target.textContent=hidden?'hide ▾':'show ▸';};
   $('tglPickup').onclick=()=>togglePickupLines();
+  $('tglNums').onclick=()=>{numsOn=!numsOn;$('tglNums').textContent='Stop #s: '+(numsOn?'on':'off');
+    Object.keys(numLayers).forEach(b=>{const nl=numLayers[b];
+      if(numsOn&&checkedBuses.has(String(b)))routeMap.addLayer(nl);else routeMap.removeLayer(nl);});};
+  $('goSchool').onclick=()=>{if(school)routeMap.setView([school.latitude,school.longitude],14,{animate:true});};
   $('tglHeat').onclick=()=>toggleHeat(data);
   $('mapStudentGo').onclick=()=>findStudentOnMap($('mapStudentSearch').value);
   $('mapStudentSearch').onkeydown=e=>{if(e.key==='Enter')findStudentOnMap(e.target.value);};
   fitMap();
 }
 
-export function toggleBus(bus,on){const g=mapLayers[bus],rl=routeLines[bus];if(!g)return;
-  if(on){routeMap.addLayer(g);checkedBuses.add(String(bus));if(pickupOn&&rl)routeMap.addLayer(rl);}
-  else{routeMap.removeLayer(g);checkedBuses.delete(String(bus));if(rl)routeMap.removeLayer(rl);}}
+export function toggleBus(bus,on){const g=mapLayers[bus],rl=routeLines[bus],nl=numLayers[bus];if(!g)return;
+  if(on){routeMap.addLayer(g);checkedBuses.add(String(bus));if(pickupOn&&rl)routeMap.addLayer(rl);if(numsOn&&nl)routeMap.addLayer(nl);}
+  else{routeMap.removeLayer(g);checkedBuses.delete(String(bus));if(rl)routeMap.removeLayer(rl);if(nl)routeMap.removeLayer(nl);}}
 
 export function togglePickupLines(){
   pickupOn=!pickupOn;
