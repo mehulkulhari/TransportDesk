@@ -24,6 +24,7 @@ export async function renderOptimization(){
     </div>
     <div id="optError"></div>
     <div id="optContent" style="display:none">
+      <div id="optExec"></div>
       <div id="optCards" class="cards" style="margin-bottom:16px"></div>
       <div id="optTables"></div>
 
@@ -68,7 +69,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal, cluster, overcap, stopMerge, villageStops, fuelShares] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal, cluster, fuelShares] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -90,9 +91,6 @@ async function loadOptimizationData(){
     db.from('opt_resequence').select('*').order('save_rs',{ascending:false}),
     db.from('opt_abnormal').select('*').order('net_fuel',{ascending:false}),
     db.from('opt_cluster').select('*').order('net_fuel',{ascending:false}),
-    db.from('opt_overcap').select('*').order('bus_id'),
-    db.from('opt_stop_merge').select('*').order('annual_saving',{ascending:false}),
-    db.from('opt_village_stops').select('*').order('annual_saving',{ascending:false}),
     db.from('opt_student_fuel').select('fuel_share')
   ]);
 
@@ -121,27 +119,34 @@ async function loadOptimizationData(){
   const abnSaving = abn.reduce((a,r)=>a+Number(r.net_fuel||0),0);
   const clu = cluster.data || [];
   const cluSaving = clu.reduce((a,r)=>a+Number(r.net_fuel||0),0);
-  const oc = overcap.data || [];
-  const ocBuses = new Set(oc.map(r=>r.bus_id));
-  const ocOver = [...ocBuses].reduce((a,b)=>a+Number((oc.find(r=>r.bus_id===b)||{}).over_by||0),0);
-  const sm = stopMerge.data || [];
-  const smStops = sm.reduce((a,r)=>a+Number(r.events_saved_per_trip||0),0);
-  const smRs = sm.reduce((a,r)=>a+Number(r.annual_saving||0),0);
-  const vs = villageStops.data || [];
-  const vsRs = vs.reduce((a,r)=>a+Number(r.annual_saving||0),0);
   const fuAll = (fuelShares.data||[]).map(r=>Number(r.fuel_share||0));
   const fuAvg = fuAll.length ? fuAll.reduce((a,b)=>a+b,0)/fuAll.length : 0;
+  const depotSaving = (depot.data||[]).reduce((a,r)=>a+Number(r.annual_fuel_saving||0),0);
+  const totalIdentified = rqSaving + fleetSaving + cluSaving + abnSaving + depotSaving;
+  const annualFuel = Number(fuel.data?.total_annual_fuel||0);
 
+  $('optExec').innerHTML = `
+    <div class="exec">
+      <div class="exec-main">
+        <span class="exec-num">${rupee(totalIdentified)}</span>
+        <span class="exec-cap">verified savings identified / year</span>
+        <span class="exec-sub">${annualFuel?(100*totalIdentified/annualFuel).toFixed(1):'—'}% of the fleet's ${rupee(annualFuel)} diesel bill</span>
+      </div>
+      <div class="exec-break">
+        ${rqSaving?`<span class="exec-chip">🔀 Re-sequencing <b>${rupee(rqSaving)}</b></span>`:''}
+        ${fleetSaving?`<span class="exec-chip">🔧 Vehicle swaps <b>${rupee(fleetSaving)}</b></span>`:''}
+        ${cluSaving?`<span class="exec-chip">👥 Group moves <b>${rupee(cluSaving)}</b></span>`:''}
+        ${abnSaving?`<span class="exec-chip">🎯 Wrong-bus <b>${rupee(abnSaving)}</b></span>`:''}
+        ${depotSaving?`<span class="exec-chip">🚏 Depot swaps <b>${rupee(depotSaving)}</b></span>`:''}
+      </div>
+    </div>`;
   $('optCards').innerHTML = [
-    ocBuses.size ? card('⚠ Over capacity', ocBuses.size+' buses', ocOver+' children beyond seats — fix first') : '',
     card('Fuel / student', rupee(Math.round(fuAvg))+'/yr', 'usage-based share of the bus'),
     rq.length ? card('Re-sequence routes', rq.length+' buses', rupee(rqSaving)+'/yr · no student moves') : '',
     cs&&cs.buses_freed>0 ? card('Consolidate fleet', '59→'+(59-cs.buses_freed), '−'+cs.buses_freed+' bus'+(cs.buses_freed>1?'es':'')+' · '+rupee(cs.fuel_saved)+' fuel + drivers') : '',
     fleetSwaps.length ? card('Vehicle swaps', fleetSwaps.length, rupee(fleetSaving)+'/yr fuel') : '',
     abn.length ? card('Wrong-bus students', abn.length, rupee(abnSaving)+'/yr net') : '',
     clu.length ? card('Grouped moves', clu.length+' groups', rupee(cluSaving)+'/yr net') : '',
-    sm.length ? card('Merge close stops', '−'+smStops+' stops/trip', rupee(smRs)+'/yr est.') : '',
-    vs.length ? card('Village stops', vs.length+' far buses', rupee(vsRs)+'/yr') : '',
     card('Far students (fee)', stuck.length, rupee(stuckCost)+'/yr they cost'),
     card('Depot swaps', (depot.data||[]).length, rupee((depot.data||[]).reduce((a,r)=>a+Number(r.annual_fuel_saving||0),0))+'/yr'),
     card('Fleet use', m.fleet_utilisation_pct+'%', m.buses_running+' buses'),
@@ -149,22 +154,6 @@ async function loadOptimizationData(){
   ].join('');
 
   $('optTables').innerHTML =
-    (oc.length ? `<div style="margin-bottom:24px;border:2px solid #b42318;border-radius:10px;padding:14px 16px;background:#fdf3f2">
-      <h3 style="margin:0 0 4px;font-size:16px;color:#b42318">⚠ Buses over seating capacity — fix before anything else</h3>
-      <div class="note" style="margin-bottom:8px">${ocBuses.size} buses carry more children than they have seats (real seats, no allowance).
-      For each, these are the cheapest legal moves: a nearby bus with a genuinely free seat, a stop within 800 m and ≥2 stops within 1.5 km absorbs the child with the least added distance.
-      Rows marked <b>manual</b> have no feasible nearby bus — those need a human decision.</div>
-      ${optTable([
-        {k:'bus_id',label:'Bus'},{k:'over_by',label:'Over by'},
-        {k:'student_name',label:'Move this child'},
-        {k:'to_bus',label:'To bus',f:v=>v??'— manual —'},
-        {k:'near_m',label:'It stops within',f:v=>v!=null?v+' m':'—'},
-        {k:'add_km',label:'Adds km/trip',f:v=>v!=null?n1(v):'—'},
-        {k:'add_fuel',label:'Adds fuel /yr',f:v=>v!=null?rupee(v):'—'},
-        {label:'Status',cell:r=>r.sr_no?statusCell('overcap', r.sr_no):''},
-        {label:'',cell:r=>r.sr_no?focusBtn(r.sr_no, r.bus_id, r.to_bus):''}
-      ], oc, 'over_capacity')}
-    </div>` : '') +
     (rq.length ? section(
       '🔀 Re-sequence pickup order — the biggest clean win',
       `<b>No child changes bus.</b> These routes visit their stops in a wasteful order (zig-zagging back and forth). `+
@@ -218,33 +207,6 @@ async function loadOptimizationData(){
         {label:'Status',cell:r=>statusCell('cluster', r.cluster_id)},
         {label:'',cell:r=>focusBtn(r.sr_list, r.own_bus, (String(r.hosts).match(/->(\d+)/)||[])[1], 'Show group ↗')}
       ], clu, 'grouped_students')
-    ) : '') +
-    (sm.length ? section(
-      '🛑 Merge stops a few doors apart — fewer stop-starts',
-      `Every halt burns extra diesel (re-accelerating the bus + idling ≈ <b>0.025–0.035 L per stop</b>, a physics-based estimate sized to the bus). `+
-      `These are stops on the <b>same bus</b> within <b>120 m walking</b> of a busier stop: combine them and the fleet makes ${smStops} fewer halts every trip ≈ <b>${rupee(smRs)}/yr</b>. `+
-      `No route or bus change — children walk at most 120 m along their own street.`,
-      optTable([
-        {k:'bus_id',label:'Bus'},{k:'stops_now',label:'Stops now',f:v=>v+' → 1'},
-        {k:'students',label:'Children'},{k:'keep_sr',label:'Keep stop at (SR)'},
-        {k:'max_walk_m',label:'Max walk',f:v=>v+' m'},
-        {k:'annual_saving',label:'Save /yr (est.)',f:rupee},
-        {label:'Status',cell:r=>statusCell('stopmerge', r.bus_id+'-'+r.cluster_id)},
-        {label:'',cell:r=>mapBtn(r.keep_sr, r.bus_id)}
-      ], sm, 'stop_merges')
-    ) : '') +
-    (vs.length ? section(
-      '🏘 Village-centre stops on the far routes',
-      `On routes longer than 30 km the bus threads door-to-door inside each hamlet. Halting <b>once per pocket</b> (at the most central child, others walking ≤250 m) `+
-      `sheds the lane-weaving below — computed on the current pickup order with the real road factor. A policy change for the village runs, worth <b>${rupee(vsRs)}/yr</b>.`,
-      optTable([
-        {k:'bus_id',label:'Bus'},{k:'pockets',label:'Hamlet pockets'},
-        {k:'students_walking',label:'Children walking'},{k:'max_walk_m',label:'Max walk',f:v=>v+' m'},
-        {k:'save_km',label:'Lane km shed /trip',f:n1},
-        {k:'annual_saving',label:'Save /yr',f:rupee},
-        {label:'Status',cell:r=>statusCell('village', r.bus_id)},
-        {label:'',cell:r=>mapBtn('', r.bus_id)}
-      ], vs, 'village_stops')
     ) : '') +
     (cs&&cs.buses_freed>0 ? buildConsolidationSection(cs, cplan, cbus) : '') +
     (fleetSwaps.length ? section(
@@ -698,9 +660,6 @@ async function recalcAll(){
     ['Routes, corridors, depots…','recalc_light'],
     ['Consolidation…',            'recalc_merge'],
     ['Fuel per student…',         'refresh_student_fuel'],
-    ['Capacity check…',           'refresh_overcap'],
-    ['Stop merges…',              'refresh_stop_merge'],
-    ['Village stops…',            'refresh_village_stops'],
     ['Summarising…',              'recalc_master']
   ];
   let failed = [];

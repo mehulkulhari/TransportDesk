@@ -27,7 +27,7 @@ export async function loadBusPage(bus){
   $('bpBody').innerHTML=`
     <div class="cards" style="margin-bottom:16px">
       ${stat('Students',cap.riders)}${stat('Capacity',cap.capacity)}
-      ${cap.riders>cap.capacity?`<div class="stat" style="border:2px solid #b42318"><b style="color:#b42318">${cap.riders-cap.capacity} OVER</b><span>capacity!</span></div>`:stat('Seats free',cap.capacity-cap.riders)}
+      ${cap.riders>cap.capacity?stat('Over capacity (allowed)',cap.riders-cap.capacity):stat('Seats free',cap.capacity-cap.riders)}
       ${econ?stat('Road km/trip',econ.road_km_per_trip):''}${econ?stat('Annual fuel',rs(econ.annual_fuel_cost)):''}</div>
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:16px;margin-bottom:16px;max-width:640px">
       <h3 style="margin:0 0 10px;font-size:15px">Driver, conductor &amp; vehicle</h3>
