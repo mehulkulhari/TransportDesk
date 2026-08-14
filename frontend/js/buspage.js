@@ -19,11 +19,12 @@ export async function renderBusPage(){
 export async function loadBusPage(bus){
   $('bpBody').innerHTML='<div class="hint">Loading…</div>';
   if(globalThis.tdRound===2){
-    const [{data:cap},{data:r2},{data:rt}]=await Promise.all([
+    const [{data:cap},{data:r2},{data:rt},{data:gj}]=await Promise.all([
       db.from('bus_capacity').select('*').eq('bus_id',bus).maybeSingle(),
       db.from('students_round2').select('sr_no,name,class,section,pickup_order').eq('bus_no',bus).eq('active',true)
         .order('pickup_order',{nullsFirst:false}),
-      db.from('r2_route').select('*').eq('bus_id',bus).maybeSingle()]);
+      db.from('r2_route').select('*').eq('bus_id',bus).maybeSingle(),
+      db.from('r2_route_geo').select('*').eq('bus_id',bus).maybeSingle()]);
     const kids=r2||[];
     const seats=cap?cap.capacity:null;
     const over=seats!=null&&kids.length>seats;
@@ -34,13 +35,14 @@ export async function loadBusPage(bus){
         <div class="stat"><b>${seats??'—'}</b><span>Vehicle seats</span></div>
         ${over?`<div class="stat"><b style="color:var(--stop)">${kids.length-seats} over</b><span>Above seats</span></div>`
               :`<div class="stat"><b>${seats!=null?seats-kids.length:'—'}</b><span>Seats free</span></div>`}
-        ${rt?`<div class="stat"><b>${Number(rt.road_km).toFixed(1)} km</b><span>Round trip from school</span></div>`:''}
+        ${gj?`<div class="stat"><b>${Number(gj.road_km).toFixed(1)} km</b><span>Round trip from school</span></div>`:''}
+        ${gj?`<div class="stat"><b>${gj.drive_min} min</b><span>Driving, excl. stops</span></div>`:''}
         ${rt&&rt.annual_fuel?`<div class="stat"><b>${rs(rt.annual_fuel)}</b><span>Annual fuel</span></div>`:''}</div>
       <h3 style="margin:0 0 8px;font-size:15px">Round 2 children on bus ${bus} (${kids.length}) — in driving order</h3>
       ${kids.length?`<div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:auto">
         <table><thead><tr><th>#</th><th>Name</th><th>SR</th><th>Class</th></tr></thead><tbody>${rws}</tbody></table></div>`
         :'<div class="note">This bus has no Round 2 children.</div>'}
-      <div class="note" style="margin-top:10px">Round 2 leaves <b>from school</b> and returns to school, both morning and afternoon — there is no depot leg. The order above is the shortest loop through these children; distance is straight-line km scaled by this bus's own measured road factor. No ride-time estimate is shown because the Round-1 telemetry does not carry over to a different route.</div>`;
+      <div class="note" style="margin-top:10px">Round 2 leaves <b>from school</b> and returns to school, both morning and afternoon — there is no depot leg. The order above is the shortest loop through these children, solved and measured on <b>real roads</b> via Google Directions${gj&&gj.reordered?' (re-ordered from the earlier straight-line order, saving '+(Number(gj.seq_km)-Number(gj.road_km)).toFixed(2)+' km per trip)':''}. The driving time excludes the time the bus stands at each stop.</div>`;
     return;
   }
   const [{data:cap},{data:econ},{data:det},{data:roster},{data:fuelSh},{data:tchs}]=await Promise.all([

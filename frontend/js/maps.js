@@ -76,14 +76,15 @@ export async function openRouteMap(){
   if(globalThis.tdRound===2){
     const [{data:r2},{data:rt}]=await Promise.all([
       db.from('students_round2').select('sr_no,name,bus_no,latitude,longitude,pickup_order').eq('active',true),
-      db.from('r2_route').select('bus_id,road_km,est_min,children')]);
+      db.from('r2_route_geo').select('bus_id,road_km,drive_min,encoded_polyline')]);
     data=(r2||[]).filter(x=>x.latitude!=null).map(x=>({sr_no:x.sr_no,student_name:x.name,bus_id:x.bus_no,
       pickup_order:x.pickup_order,latitude:x.latitude,longitude:x.longitude,
       bus_has_depot:false,depot_lat:null,depot_lon:null,road_km_to_school:null,road_min_to_school:null}));
-    // Round-2 distances come from r2_route (2-opt order on the school->children->school loop,
-    // straight km scaled by each bus's own road factor). No cached road shape, so the map
-    // draws the ordered legs directly.
-    geo=(rt||[]).map(r=>({bus_id:r.bus_id,road_km:r.road_km,est_min:r.est_min,duration_min:r.est_min,encoded_polyline:null}));
+    // Round-2 shapes and distances are measured on real roads by Google Directions over the
+    // school -> children -> school loop, so these draw as actual roads, not straight legs.
+    // drive_min is Google's driving time and does NOT include time stopped at each stop.
+    geo=(rt||[]).map(r=>({bus_id:r.bus_id,road_km:r.road_km,est_min:r.drive_min,
+      duration_min:r.drive_min,encoded_polyline:r.encoded_polyline}));
     rideRows=[];           // per-student fuel shares are a Round-1 figure
   }else{
     const res=await Promise.all([
@@ -200,7 +201,7 @@ export async function openRouteMap(){
       <span class="sw" style="background:${col};border-radius:50%"></span>
       <span class="nm" style="flex:1;cursor:pointer">${diamond}Bus ${bus}${tBadge}</span>
       <span class="cnt" style="color:${cntColor}${cntColor!=='var(--slate)'?';font-weight:600':''}">${riders}${cap?'/'+cap:''}</span>
-      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?info.roadKm+' km':'—'}${info.min?` · ~${info.min} min`:''} (with stops)</div>${tLine}`;
+      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?Number(info.roadKm).toFixed(2)+' km':'—'}${info.min?` · ~${info.min} min`:''} ${globalThis.tdRound===2?'(driving, excl. stops)':'(with stops)'}</div>${tLine}`;
     leg.appendChild(row);
     row.querySelector('.legchk').onchange=e=>{e.stopPropagation();toggleBus(bus,e.target.checked);};
     row.querySelector('.nm').onclick=e=>{e.preventDefault();isolate(bus);};});
