@@ -120,10 +120,16 @@ export async function openRouteMap(){
   const kmVals=data.filter(s=>s.road_km_to_school!=null).map(s=>Number(s.road_km_to_school));
   const avgKm=kmVals.length?(kmVals.reduce((a,b)=>a+b,0)/kmVals.length):0;
   const statCell=(v,l)=>`<div style="padding:10px 16px;border-right:1px solid var(--edge)"><div style="font-size:20px;font-weight:700;line-height:1.1">${v}</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--slate)">${l}</div></div>`;
-  $('mapStats').innerHTML = statCell(data.length,'Students')+
+  const isR2=globalThis.tdRound===2;
+  // Round 2 has no per-student road_km_to_school, so that cell would read 0.0. Show the
+  // average route length per bus instead, which the measured road km does support.
+  const midCell = isR2
+    ? statCell(busIds.length?(totRoad/busIds.length).toFixed(1):'0.0','Avg km per route')
+    : statCell(avgKm.toFixed(1),'Avg km to school');
+  $('mapStats').innerHTML = statCell(data.length,isR2?'Children':'Students')+
     (teacherRows.length?statCell(teacherRows.length,'Teachers (a.m.)'):'')+
-    statCell(busIds.length,'Buses')+
-    statCell(avgKm.toFixed(1),'Avg km to school')+statCell(Math.round(totRoad),'Total road km').replace('border-right:1px solid var(--edge)','');
+    statCell(busIds.length,'Buses')+ midCell +
+    statCell(Math.round(totRoad),'Total road km').replace('border-right:1px solid var(--edge)','');
 
   const leg=$('mapLegend');leg.innerHTML='';
   busIds.forEach(bus=>{const col=colorOf[bus]||'#666';const g=L.layerGroup().addTo(routeMap);const info=byBus[bus];

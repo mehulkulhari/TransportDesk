@@ -2,6 +2,7 @@
 // and build each bus's real-road drop route via Google (exact km + time).
 import { db } from "./supabase.js";
 import { GOOGLE_DIRECTIONS_KEY } from "./config.js";
+import { roundBusIds } from "./rounds.js";
 
 const PAL = i => `hsl(${Math.round(i*137.508)%360} 68% 45%)`;
 let plMap, plLayers = [];
@@ -114,9 +115,18 @@ async function planRoutes(){
     const limit=parseFloat($('plLimit').value)||null;
     const busFilter=($('plBuses').value.match(/\d+/g)||[]).map(Number);
 
-    // students
-    const {data:studs,error}=await db.from('student_effective')
-      .select('sr_no,student_name,latitude,longitude,bus_id').in('sr_no',srs);
+    // students — from the selected round's own table
+    const r2 = globalThis.tdRound===2;
+    let studs,error;
+    if(r2){
+      ({data:studs,error}=await db.from('students_round2')
+        .select('sr_no,name,latitude,longitude,bus_no').eq('active',true).in('sr_no',srs));
+      studs=(studs||[]).map(s=>({sr_no:s.sr_no,student_name:s.name,latitude:s.latitude,
+        longitude:s.longitude,bus_id:s.bus_no}));
+    }else{
+      ({data:studs,error}=await db.from('student_effective')
+        .select('sr_no,student_name,latitude,longitude,bus_id').in('sr_no',srs));
+    }
     if(error) throw error;
     const found=(studs||[]).filter(s=>s.latitude!=null)
       .map(s=>({sr:String(s.sr_no),name:s.student_name,lat:s.latitude,lon:s.longitude,reg:s.bus_id}));
@@ -128,7 +138,14 @@ async function planRoutes(){
 
     // buses (capacity + depot start)
     const {data:bs}=await db.from('buses').select('bus_id,capacity,start_latitude,start_longitude').order('bus_id');
-    let pool=(bs||[]).map(b=>({id:b.bus_id,cap:b.capacity||0,slat:b.start_latitude,slon:b.start_longitude}));
+    // Round-2 buses start FROM SCHOOL and return to it, so they have no depot leg; and only
+    // the buses that actually run Round 2 are available for a Round-2 stayback.
+    const r2Ids = r2 ? new Set((await roundBusIds()).map(String)) : null;
+    let pool=(bs||[])
+      .filter(b=>!r2 || r2Ids.has(String(b.bus_id)))
+      .map(b=>({id:b.bus_id,cap:b.capacity||0,
+        slat: r2 ? sy : b.start_latitude,
+        slon: r2 ? sx : b.start_longitude}));
     if(busFilter.length) pool=pool.filter(v=>busFilter.includes(v.id));
     if(!pool.length){toast('No buses available','bad');return;}
     const capLimit=Math.min(Math.max(...pool.map(v=>v.cap)), maxPer);

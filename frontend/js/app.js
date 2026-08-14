@@ -145,9 +145,8 @@ globalThis.tdRound = parseInt(localStorage.getItem('tdRound')||'1',10)===2 ? 2 :
   const strip=document.getElementById('roundStrip');
   if(strip && tdRound===2){ strip.style.display='block';
     strip.innerHTML='🚸 <b>Round 2 — small children (PG · Nursery · LKG · UKG · 1st).</b> '+
-      'Dashboard, Students, Pickup order, Route map, Bus page and Optimization are all showing Round 2 only. '+
-      'These buses start from school and return to school on both runs. '+
-      '<b>Temporary</b> and <b>Planner</b> remain Round 1 — their records hang off the Round-1 student table.'; }
+      'Every tab is showing Round 2 only. These buses start from school and return to school on both runs, '+
+      'and their routes are measured on real roads.'; }
 }
 
 /* auth */
