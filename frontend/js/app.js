@@ -145,8 +145,9 @@ globalThis.tdRound = parseInt(localStorage.getItem('tdRound')||'1',10)===2 ? 2 :
   const strip=document.getElementById('roundStrip');
   if(strip && tdRound===2){ strip.style.display='block';
     strip.innerHTML='🚸 <b>Round 2 — small children (PG · Nursery · LKG · UKG · 1st).</b> '+
-      'Dashboard, Route map and Bus page are showing Round 2. '+
-      'Students, Pickup order, Temporary, Optimization and Planner still manage Round 1 data (Round 2 editing opens after the data is corrected).'; }
+      'Dashboard, Students, Pickup order, Route map, Bus page and Optimization are all showing Round 2 only. '+
+      'These buses start from school and return to school on both runs. '+
+      '<b>Temporary</b> and <b>Planner</b> remain Round 1 — their records hang off the Round-1 student table.'; }
 }
 
 /* auth */

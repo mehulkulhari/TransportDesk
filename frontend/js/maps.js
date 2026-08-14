@@ -74,12 +74,17 @@ export async function openRouteMap(){
   if(mapReady){setTimeout(()=>fitMapChecked&&fitMapChecked(),380);return;}
   let data, geo, rideRows;
   if(globalThis.tdRound===2){
-    const {data:r2}=await db.from('students_round2')
-      .select('sr_no,name,bus_no,latitude,longitude,pickup_order').eq('active',true);
+    const [{data:r2},{data:rt}]=await Promise.all([
+      db.from('students_round2').select('sr_no,name,bus_no,latitude,longitude,pickup_order').eq('active',true),
+      db.from('r2_route').select('bus_id,road_km,est_min,children')]);
     data=(r2||[]).filter(x=>x.latitude!=null).map(x=>({sr_no:x.sr_no,student_name:x.name,bus_id:x.bus_no,
       pickup_order:x.pickup_order,latitude:x.latitude,longitude:x.longitude,
       bus_has_depot:false,depot_lat:null,depot_lon:null,road_km_to_school:null,road_min_to_school:null}));
-    geo=[]; rideRows=[];   // cached road shapes + fuel shares are Round-1; Round 2 draws its own straight legs
+    // Round-2 distances come from r2_route (2-opt order on the school->children->school loop,
+    // straight km scaled by each bus's own road factor). No cached road shape, so the map
+    // draws the ordered legs directly.
+    geo=(rt||[]).map(r=>({bus_id:r.bus_id,road_km:r.road_km,est_min:r.est_min,duration_min:r.est_min,encoded_polyline:null}));
+    rideRows=[];           // per-student fuel shares are a Round-1 figure
   }else{
     const res=await Promise.all([
       fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
@@ -127,7 +132,13 @@ export async function openRouteMap(){
     const myTeachers=teachersByBus[String(bus)]||[];
     const merged=insertTeachers(order,myTeachers,info.depot,schoolPt);
     const seq=merged.seq;
-    const path=[];if(info.depot)path.push(info.depot);seq.forEach(s=>path.push([s.latitude,s.longitude]));if(schoolPt)path.push(schoolPt);
+    // Round 2 runs a closed loop: the bus is already at school after Round 1, drives out to
+    // collect the children and comes back. Round 1 starts from the depot when it has one.
+    const startsAtSchool = globalThis.tdRound===2;
+    const path=[];
+    if(startsAtSchool){ if(schoolPt)path.push(schoolPt); } else if(info.depot) path.push(info.depot);
+    seq.forEach(s=>path.push([s.latitude,s.longitude]));
+    if(schoolPt)path.push(schoolPt);
     const gj=geoBy[bus];
     const routeCoords=(gj&&gj.encoded_polyline)?decodePolyline(gj.encoded_polyline):path;  // real road when cached
     if(gj){info.roadKm=gj.road_km;info.min=gj.est_min||gj.duration_min;}
@@ -206,15 +217,6 @@ export async function openRouteMap(){
     Object.keys(numLayers).forEach(b=>{const nl=numLayers[b];
       if(numsOn&&checkedBuses.has(String(b)))routeMap.addLayer(nl);else routeMap.removeLayer(nl);});};
   $('goSchool').onclick=()=>{if(school)routeMap.setView([school.latitude,school.longitude],14,{animate:true});};
-  // Teacher stops live in a per-bus layer, so they follow that bus's checkbox: tick only
-  // Bus 1 and you see just Bus 1's teachers. This button hides them across every bus.
-  $('tglTeachers').textContent='Teachers: '+(teachersOn?'on':'off');
-  $('tglTeachers').onclick=()=>{
-    teachersOn=!teachersOn;
-    $('tglTeachers').textContent='Teachers: '+(teachersOn?'on':'off');
-    Object.keys(teacherLayers).forEach(b=>{const tg=teacherLayers[b];if(!tg||!tg.getLayers().length)return;
-      if(teachersOn&&checkedBuses.has(String(b)))routeMap.addLayer(tg);else routeMap.removeLayer(tg);});
-  };
   $('tglHeat').onclick=()=>toggleHeat(data);
   $('mapStudentGo').onclick=()=>findStudentOnMap($('mapStudentSearch').value);
   $('mapStudentSearch').onkeydown=e=>{if(e.key==='Enter')findStudentOnMap(e.target.value);};

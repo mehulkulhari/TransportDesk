@@ -1,13 +1,28 @@
 import { db } from "./supabase.js";
 import { $, toast } from "./utils.js";
+import { roundBusIds, searchRoundStudents } from "./rounds.js";
 /* ============ PICKUP ORDER ============ */
 let pkBus=null,pkRows=[],dragSr=null;
-export function buildPickupBtns(){
-  $('pkBusBtns').innerHTML=buses.map(b=>`<button data-bus="${b.bus_id}">${b.bus_id}</button>`).join('');
+// Round 2 keeps its children in their own table, so every read and write here has to follow
+// the selected round or Round 2 would list — and reorder — Round-1 students.
+const r2=()=>globalThis.tdRound===2;
+const editTable=()=>r2()?'students_round2':'students';
+// sr_no is only unique per bus in Round 2's table, so pin writes to the open bus
+const scopeBus=q=>r2()?q.eq('bus_no',pkBus):q;
+export async function buildPickupBtns(){
+  const ids=await roundBusIds();
+  $('pkBusBtns').innerHTML=ids.map(id=>`<button data-bus="${id}">${id}</button>`).join('');
   [...$('pkBusBtns').children].forEach(el=>el.onclick=()=>{[...$('pkBusBtns').children].forEach(x=>x.classList.remove('on'));el.classList.add('on');loadPickup(parseInt(el.dataset.bus,10));});
 }
 export async function loadPickup(bus){pkBus=bus;
-  const {data,error}=await db.from('bus_roster').select('sr_no,student_name,pickup_order,capacity').eq('bus_id',bus);
+  let data,error;
+  if(r2()){
+    ({data,error}=await db.from('students_round2').select('sr_no,name,pickup_order').eq('bus_no',bus).eq('active',true));
+    data=(data||[]).map(r=>({sr_no:r.sr_no,student_name:r.name,pickup_order:r.pickup_order,
+      capacity:(buses.find(b=>String(b.bus_id)===String(bus))||{}).capacity||0}));
+  }else{
+    ({data,error}=await db.from('bus_roster').select('sr_no,student_name,pickup_order,capacity').eq('bus_id',bus));
+  }
   if(error){$('pkWrap').innerHTML='<div class="hint">'+esc(error.message)+'</div>';return;}
   pkRows=data||[];const cap=pkRows[0]?.capacity||0;
   const ordered=pkRows.filter(r=>r.pickup_order).sort((a,b)=>a.pickup_order-b.pickup_order);
@@ -38,9 +53,7 @@ export async function loadPickup(bus){pkBus=bus;
 
 async function pkSearchAdd(term){term=(term||'').trim();
   if(term.length<2){$('pkAddRes').innerHTML='<div class="hint">Type a name or SR number.</div>';return;}
-  const {data,error}=await db.from('student_effective')
-    .select('id,sr_no,student_name,bus_id').or(`student_name.ilike.%${term}%,sr_no.ilike.%${term}%`).limit(20);
-  if(error){$('pkAddRes').innerHTML='<div class="hint">'+esc(error.message)+'</div>';return;}
+  const data=await searchRoundStudents(term,20);
   const rows=(data||[]).filter(s=>String(s.bus_id)!==String(pkBus));
   if(!rows.length){$('pkAddRes').innerHTML='<div class="hint">No other-bus student matches.</div>';return;}
   $('pkAddRes').innerHTML=rows.map(s=>`<div class="item" data-id="${s.id}" data-name="${esc(s.student_name)}">
@@ -54,7 +67,7 @@ async function pkAssign(id,name){
   let pos=1; while(used.has(pos)) pos++;
   const cap=pkRows[0]?.capacity||0;
   if(cap && pkRows.length>=cap && !confirm(`Bus ${pkBus} is at capacity (${pkRows.length}/${cap}). Add ${name} anyway?`)) return;
-  const {error}=await db.from('students').update({bus_no:pkBus,pickup_order:pos}).eq('id',id);
+  const {error}=await db.from(editTable()).update({bus_no:pkBus,pickup_order:pos}).eq('id',id);
   if(error){toast(error.message.includes('uniq_bus_pickup')?`Seat ${pos} already taken — try again`:error.message,'bad');return;}
   toast(`${name} added to Bus ${pkBus} at seat ${pos}`,'good');
   loadPickup(pkBus);
@@ -72,11 +85,11 @@ async function movePickup(sr,tPos,tSr){
   try{
     let err=null;
     if(tSr&&tSr!==sr){
-      ({error:err}=await db.from('students').update({pickup_order:null}).eq('sr_no',tSr));
-      if(!err)({error:err}=await db.from('students').update({pickup_order:tPos}).eq('sr_no',sr));
-      if(!err)({error:err}=await db.from('students').update({pickup_order:srcPos}).eq('sr_no',tSr));
+      ({error:err}=await scopeBus(db.from(editTable()).update({pickup_order:null}).eq('sr_no',tSr)));
+      if(!err)({error:err}=await scopeBus(db.from(editTable()).update({pickup_order:tPos}).eq('sr_no',sr)));
+      if(!err)({error:err}=await scopeBus(db.from(editTable()).update({pickup_order:srcPos}).eq('sr_no',tSr)));
     } else {
-      ({error:err}=await db.from('students').update({pickup_order:tPos}).eq('sr_no',sr));
+      ({error:err}=await scopeBus(db.from(editTable()).update({pickup_order:tPos}).eq('sr_no',sr)));
     }
     if(err) toast(err.message||'Could not update','bad');
     else toast('Pickup order updated','good');

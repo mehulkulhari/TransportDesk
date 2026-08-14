@@ -2,9 +2,13 @@
 // Functions access legacy runtime state through the global bridge in app.js.
 
 import { insertTeachers } from "./teacherroute.js";
+import { roundBusIds } from "./rounds.js";
 
 export async function renderBusPage(){
-  const opts=buses.map(b=>`<option value="${b.bus_id}">Bus ${b.bus_id}</option>`).join('');
+  // Round 2 is run by a subset of the fleet, so only those buses belong in the picker
+  const ids=await roundBusIds();
+  const opts=ids.map(id=>`<option value="${id}">Bus ${id}</option>`).join('');
+  if(!ids.length){$('busPageBody').innerHTML='<h2 style="margin:0 0 10px">Bus page</h2><div class="note">No buses run Round 2.</div>';return;}
   $('busPageBody').innerHTML=`<h2 style="margin:0 0 10px">Bus page</h2>
     <div style="max-width:220px;margin-bottom:16px"><label>Choose a bus</label><select id="bpSel">${opts}</select></div>
     <div id="bpBody"></div>`;
@@ -15,20 +19,28 @@ export async function renderBusPage(){
 export async function loadBusPage(bus){
   $('bpBody').innerHTML='<div class="hint">Loading…</div>';
   if(globalThis.tdRound===2){
-    const [{data:cap},{data:r2}]=await Promise.all([
-      db.from('bus_capacity').select('*').eq('bus_id',bus).single(),
-      db.from('students_round2').select('sr_no,name,class,section').eq('bus_no',bus).eq('active',true).order('name')]);
+    const [{data:cap},{data:r2},{data:rt}]=await Promise.all([
+      db.from('bus_capacity').select('*').eq('bus_id',bus).maybeSingle(),
+      db.from('students_round2').select('sr_no,name,class,section,pickup_order').eq('bus_no',bus).eq('active',true)
+        .order('pickup_order',{nullsFirst:false}),
+      db.from('r2_route').select('*').eq('bus_id',bus).maybeSingle()]);
     const kids=r2||[];
-    const rws=kids.map((k,i)=>`<tr><td>${i+1}</td><td>${esc(k.name)}</td><td class="mono">${esc(k.sr_no)}</td><td>${esc(k.class||'')}${k.section?'-'+esc(k.section):''}</td></tr>`).join('');
+    const seats=cap?cap.capacity:null;
+    const over=seats!=null&&kids.length>seats;
+    const rws=kids.map(k=>`<tr><td>${k.pickup_order??'—'}</td><td>${esc(k.name)}</td><td class="mono">${esc(k.sr_no)}</td><td>${esc(k.class||'')}${k.section?'-'+esc(k.section):''}</td></tr>`).join('');
     $('bpBody').innerHTML=`
       <div class="cards" style="margin-bottom:16px">
         <div class="stat"><b>${kids.length}</b><span>Round 2 children</span></div>
-        <div class="stat"><b>${cap?cap.capacity:'—'}</b><span>Vehicle seats</span></div></div>
-      <h3 style="margin:0 0 8px;font-size:15px">Round 2 children on bus ${bus} (${kids.length})</h3>
+        <div class="stat"><b>${seats??'—'}</b><span>Vehicle seats</span></div>
+        ${over?`<div class="stat"><b style="color:var(--stop)">${kids.length-seats} over</b><span>Above seats</span></div>`
+              :`<div class="stat"><b>${seats!=null?seats-kids.length:'—'}</b><span>Seats free</span></div>`}
+        ${rt?`<div class="stat"><b>${Number(rt.road_km).toFixed(1)} km</b><span>Round trip from school</span></div>`:''}
+        ${rt&&rt.annual_fuel?`<div class="stat"><b>${rs(rt.annual_fuel)}</b><span>Annual fuel</span></div>`:''}</div>
+      <h3 style="margin:0 0 8px;font-size:15px">Round 2 children on bus ${bus} (${kids.length}) — in driving order</h3>
       ${kids.length?`<div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:auto">
         <table><thead><tr><th>#</th><th>Name</th><th>SR</th><th>Class</th></tr></thead><tbody>${rws}</tbody></table></div>`
         :'<div class="note">This bus has no Round 2 children.</div>'}
-      <div class="note" style="margin-top:10px">Round 2 runs after Round 1 in the morning and departs first in the afternoon. Pickup order for Round 2 comes after data correction. Switch rounds from the header.</div>`;
+      <div class="note" style="margin-top:10px">Round 2 leaves <b>from school</b> and returns to school, both morning and afternoon — there is no depot leg. The order above is the shortest loop through these children; distance is straight-line km scaled by this bus's own measured road factor. No ride-time estimate is shown because the Round-1 telemetry does not carry over to a different route.</div>`;
     return;
   }
   const [{data:cap},{data:econ},{data:det},{data:roster},{data:fuelSh},{data:tchs}]=await Promise.all([

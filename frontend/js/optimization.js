@@ -1,4 +1,5 @@
 import { GOOGLE_DIRECTIONS_KEY } from "./config.js";
+import { renderOptimizationR2 } from "./optimization_r2.js";
 // Optimization analysis engine.
 // Reads precomputed snapshot tables (instant, never times out) and provides a
 // live what-if simulator. Recalculation is chunked into sub-8s RPC calls so it
@@ -15,6 +16,9 @@ const REASON_LABEL = {
 let optStatus = {};
 
 export async function renderOptimization(){
+  // Round 2 is a different run over a different set of children, so none of the Round-1
+  // snapshot tables below describe it. It gets its own analysis.
+  if(globalThis.tdRound===2) return renderOptimizationR2();
   $('optBody').innerHTML = `
     <h2 style="margin:0 0 4px">Route Optimization</h2>
     <div class="note" style="margin-bottom:12px">
