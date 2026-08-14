@@ -2,6 +2,7 @@
 // Functions access legacy runtime state through the global bridge in app.js.
 
 import { GOOGLE_MAPS_API_KEY } from "./config.js";
+import { insertTeachers, teacherRoadKm } from "./teacherroute.js";
 
 export function loadGoogle(){
   if(!GOOGLE_MAPS_API_KEY) return;
@@ -56,7 +57,8 @@ export function decodePolyline(str){
 globalThis.routeLines = {};        // per-bus real-road route polyline (toggled by "Pickup lines")
 globalThis.numLayers = {};         // per-bus pickup-number badges (toggled by "Stop #s")
 globalThis.numsOn = false;
-globalThis.teacherLayer = null;    // morning-only teacher homes (toggled by "Teachers")
+globalThis.teacherLayers = {};     // per-bus morning teacher stops, so they follow the bus checkboxes
+globalThis.teachersOn = true;      // teachers are part of the morning route, so shown by default
 globalThis.studentMarkers = [];    // {sr_no, name, lat, lon, bus, marker} for search
 globalThis.mapHeat = null;
 globalThis.pickupOn = true;
@@ -85,6 +87,18 @@ export async function openRouteMap(){
       fetchAll('opt_student_fuel','sr_no,ride_km,ride_min')]);
     data=res[0]; geo=res[1].data; rideRows=res[2];
   }
+  // Teachers ride in with the students on the Round-1 morning run (and do not ride back),
+  // so on Round 1 they are genuine stops on these routes. Round 2 carries no teachers.
+  let teacherRows=[];
+  if(globalThis.tdRound!==2){
+    const {data:tt}=await db.from('teachers').select('name,emp_code,latitude,longitude,bus_no').not('latitude','is',null);
+    teacherRows=tt||[];
+  }
+  const teachersByBus={};
+  teacherRows.forEach(t=>{const b=String(t.bus_no==null?'':t.bus_no).trim();
+    if(!b||b.toLowerCase()==='self')return;            // 'self' = makes their own way in
+    (teachersByBus[b]=teachersByBus[b]||[]).push(t);});
+
   const rideBy={};(rideRows||[]).forEach(r=>rideBy[r.sr_no]=r);
   const geoBy={};(geo||[]).forEach(gr=>geoBy[gr.bus_id]=gr);
   const capBy={};(buses||[]).forEach(b=>capBy[b.bus_id]=b.capacity);
@@ -100,19 +114,45 @@ export async function openRouteMap(){
   const kmVals=data.filter(s=>s.road_km_to_school!=null).map(s=>Number(s.road_km_to_school));
   const avgKm=kmVals.length?(kmVals.reduce((a,b)=>a+b,0)/kmVals.length):0;
   const statCell=(v,l)=>`<div style="padding:10px 16px;border-right:1px solid var(--edge)"><div style="font-size:20px;font-weight:700;line-height:1.1">${v}</div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--slate)">${l}</div></div>`;
-  $('mapStats').innerHTML = statCell(data.length,'Students')+statCell(busIds.length,'Buses')+
+  $('mapStats').innerHTML = statCell(data.length,'Students')+
+    (teacherRows.length?statCell(teacherRows.length,'Teachers (a.m.)'):'')+
+    statCell(busIds.length,'Buses')+
     statCell(avgKm.toFixed(1),'Avg km to school')+statCell(Math.round(totRoad),'Total road km').replace('border-right:1px solid var(--edge)','');
 
   const leg=$('mapLegend');leg.innerHTML='';
   busIds.forEach(bus=>{const col=colorOf[bus]||'#666';const g=L.layerGroup().addTo(routeMap);const info=byBus[bus];
-    const order=orderStops(info.stops,info.depot,school?[school.latitude,school.longitude]:null);
-    const path=[];if(info.depot)path.push(info.depot);order.forEach(s=>path.push([s.latitude,s.longitude]));if(school)path.push([school.latitude,school.longitude]);
+    const schoolPt=school?[school.latitude,school.longitude]:null;
+    const order=orderStops(info.stops,info.depot,schoolPt);
+    // fold this bus's teachers into the morning sequence at their cheapest-insertion spots
+    const myTeachers=teachersByBus[String(bus)]||[];
+    const merged=insertTeachers(order,myTeachers,info.depot,schoolPt);
+    const seq=merged.seq;
+    const path=[];if(info.depot)path.push(info.depot);seq.forEach(s=>path.push([s.latitude,s.longitude]));if(schoolPt)path.push(schoolPt);
     const gj=geoBy[bus];
     const routeCoords=(gj&&gj.encoded_polyline)?decodePolyline(gj.encoded_polyline):path;  // real road when cached
     if(gj){info.roadKm=gj.road_km;info.min=gj.est_min||gj.duration_min;}
+    // the cached shape is the real road line through the STUDENT stops only; the teacher
+    // diversions are drawn as their own legs below and costed from the bus's road factor
+    info.tCount=myTeachers.length;
+    info.tKm=teacherRoadKm(merged.addedKm, gj&&gj.factor);
     const rl=L.polyline(routeCoords,{color:col,weight:3,opacity:.82,interactive:false});
     routeLines[bus]=rl; if(pickupOn) rl.addTo(routeMap);
-    order.forEach((s,i)=>{
+    const tg=L.layerGroup(); teacherLayers[bus]=tg;
+    seq.forEach((s,i)=>{
+      if(s.kind==='teacher'){
+        // dashed legs in and out of the teacher: this is where the morning run diverts
+        const prev = i>0 ? [seq[i-1].latitude,seq[i-1].longitude] : info.depot;
+        const next = i<seq.length-1 ? [seq[i+1].latitude,seq[i+1].longitude] : schoolPt;
+        if(prev)L.polyline([prev,[s.latitude,s.longitude]],{color:col,weight:2,opacity:.7,dashArray:'5,5',interactive:false}).addTo(tg);
+        if(next)L.polyline([[s.latitude,s.longitude],next],{color:col,weight:2,opacity:.7,dashArray:'5,5',interactive:false}).addTo(tg);
+        L.marker([s.latitude,s.longitude],{icon:L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
+          html:'<div style="font-size:15px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">🧑‍🏫</div>'})})
+          .bindPopup(`<b>${esc(s.name)}</b><br><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:4px"></span>Teacher · Bus ${bus} · morning stop #${i+1}<br><span class="mono">Emp ${esc(s.emp_code||'—')}</span><br><span style="font-size:12px;color:#666">rides in with Round 1 only — does not ride back</span>`)
+          .addTo(tg);
+        L.marker([s.latitude,s.longitude],{interactive:false,icon:L.divIcon({className:'',iconSize:[18,18],iconAnchor:[9,22],html:
+          `<div style="width:18px;height:18px;border-radius:50%;background:${col};border:2px solid #fff;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;box-shadow:0 1px 3px rgba(0,0,0,.35)">${i+1}</div>`})}).addTo(tg);
+        return;
+      }
       const rd = rideBy[String(s.sr_no)]||rideBy[s.sr_no];
       const road = rd ? `${rd.ride_min} min · ${rd.ride_km} km along the route to school`
                  : (s.road_min_to_school!=null ? `${s.road_min_to_school} min · ${s.road_km_to_school} km by road to school`
@@ -135,15 +175,21 @@ export async function openRouteMap(){
     });
     if(info.depot)L.marker(info.depot,{icon:L.divIcon({className:'',html:`<div style="width:12px;height:12px;background:${col};border:2px solid #fff;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`,iconSize:[14,14],iconAnchor:[7,7]})}).addTo(g).bindPopup('Bus '+bus+' — start point');
     mapLayers[bus]=g;
+    if(teachersOn && tg.getLayers().length) tg.addTo(routeMap);
     const riders=info.stops.length, cap=capBy[bus];
+    const morning=riders+info.tCount;            // teachers take seats on the way in
+    const overAm=cap&&morning>cap;
     const cntColor = cap&&riders>cap?'#dc2626':(cap&&riders===cap?'#16a34a':'var(--slate)');
     const diamond = info.depot?`<span title="custom start point" style="color:${col}">◆</span> `:'';
+    const tBadge = info.tCount?` <span title="${info.tCount} teacher${info.tCount>1?'s':''} ride in on this bus" style="color:${col}">🧑‍🏫${info.tCount}</span>`:'';
+    const morningKm = info.roadKm!=null?Number(info.roadKm)+info.tKm:null;
+    const tLine = info.tCount?`<div style="flex-basis:100%;padding-left:24px;font-size:11px;color:${overAm?'#dc2626':'var(--slate)'}">🧑‍🏫 +${info.tCount} teacher${info.tCount>1?'s':''} · morning ${morningKm!=null?morningKm.toFixed(1)+' km':'—'} (+${info.tKm.toFixed(1)}) · load ${morning}${cap?'/'+cap:''}${overAm?' — over':''}</div>`:'';
     const row=document.createElement('div');row.className='legrow';row.dataset.bus=bus;row.style.flexWrap='wrap';
     row.innerHTML=`<input type="checkbox" class="legchk" data-bus="${bus}" checked>
       <span class="sw" style="background:${col};border-radius:50%"></span>
-      <span class="nm" style="flex:1;cursor:pointer">${diamond}Bus ${bus}</span>
+      <span class="nm" style="flex:1;cursor:pointer">${diamond}Bus ${bus}${tBadge}</span>
       <span class="cnt" style="color:${cntColor}${cntColor!=='var(--slate)'?';font-weight:600':''}">${riders}${cap?'/'+cap:''}</span>
-      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?info.roadKm+' km':'—'}${info.min?` · ~${info.min} min`:''} (with stops)</div>`;
+      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?info.roadKm+' km':'—'}${info.min?` · ~${info.min} min`:''} (with stops)</div>${tLine}`;
     leg.appendChild(row);
     row.querySelector('.legchk').onchange=e=>{e.stopPropagation();toggleBus(bus,e.target.checked);};
     row.querySelector('.nm').onclick=e=>{e.preventDefault();isolate(bus);};});
@@ -160,15 +206,14 @@ export async function openRouteMap(){
     Object.keys(numLayers).forEach(b=>{const nl=numLayers[b];
       if(numsOn&&checkedBuses.has(String(b)))routeMap.addLayer(nl);else routeMap.removeLayer(nl);});};
   $('goSchool').onclick=()=>{if(school)routeMap.setView([school.latitude,school.longitude],14,{animate:true});};
-  $('tglTeachers').onclick=async ()=>{
-    if(teacherLayer){routeMap.removeLayer(teacherLayer);teacherLayer=null;$('tglTeachers').textContent='Teachers: off';return;}
-    const {data:t}=await db.from('teachers').select('name,latitude,longitude,bus_no').not('latitude','is',null);
-    teacherLayer=L.layerGroup((t||[]).map(x=>
-      L.marker([x.latitude,x.longitude],{icon:L.divIcon({className:'',iconSize:[22,22],iconAnchor:[11,11],
-        html:'<div style="font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">🧑\u200d🏫</div>'})})
-        .bindPopup(`<b>${esc(x.name)}</b><br>Teacher · Bus ${esc(x.bus_no||'— not assigned')}<br><span style="font-size:12px;color:#666">rides mornings (Round 1) only</span>`)
-    )).addTo(routeMap);
-    $('tglTeachers').textContent='Teachers: on';
+  // Teacher stops live in a per-bus layer, so they follow that bus's checkbox: tick only
+  // Bus 1 and you see just Bus 1's teachers. This button hides them across every bus.
+  $('tglTeachers').textContent='Teachers: '+(teachersOn?'on':'off');
+  $('tglTeachers').onclick=()=>{
+    teachersOn=!teachersOn;
+    $('tglTeachers').textContent='Teachers: '+(teachersOn?'on':'off');
+    Object.keys(teacherLayers).forEach(b=>{const tg=teacherLayers[b];if(!tg||!tg.getLayers().length)return;
+      if(teachersOn&&checkedBuses.has(String(b)))routeMap.addLayer(tg);else routeMap.removeLayer(tg);});
   };
   $('tglHeat').onclick=()=>toggleHeat(data);
   $('mapStudentGo').onclick=()=>findStudentOnMap($('mapStudentSearch').value);
@@ -176,9 +221,11 @@ export async function openRouteMap(){
   fitMap();
 }
 
-export function toggleBus(bus,on){const g=mapLayers[bus],rl=routeLines[bus],nl=numLayers[bus];if(!g)return;
-  if(on){routeMap.addLayer(g);checkedBuses.add(String(bus));if(pickupOn&&rl)routeMap.addLayer(rl);if(numsOn&&nl)routeMap.addLayer(nl);}
-  else{routeMap.removeLayer(g);checkedBuses.delete(String(bus));if(rl)routeMap.removeLayer(rl);if(nl)routeMap.removeLayer(nl);}}
+export function toggleBus(bus,on){const g=mapLayers[bus],rl=routeLines[bus],nl=numLayers[bus],tg=teacherLayers[bus];if(!g)return;
+  if(on){routeMap.addLayer(g);checkedBuses.add(String(bus));if(pickupOn&&rl)routeMap.addLayer(rl);if(numsOn&&nl)routeMap.addLayer(nl);
+    if(teachersOn&&tg&&tg.getLayers().length)routeMap.addLayer(tg);}
+  else{routeMap.removeLayer(g);checkedBuses.delete(String(bus));if(rl)routeMap.removeLayer(rl);if(nl)routeMap.removeLayer(nl);
+    if(tg)routeMap.removeLayer(tg);}}
 
 export function togglePickupLines(){
   pickupOn=!pickupOn;
