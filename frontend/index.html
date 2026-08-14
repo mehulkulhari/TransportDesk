@@ -71,14 +71,12 @@
       <div id="mapStats" style="position:absolute;top:10px;left:10px;z-index:600;background:#fff;border:1px solid var(--edge);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.12);display:flex;overflow:hidden"></div>
 
       <div class="legend" id="mapLegendPanel">
-        <div class="hd" style="display:flex;align-items:center;justify-content:space-between">Buses
-          <a href="#" id="legHide" style="font-weight:400;font-size:12px;color:var(--slate)">hide ▾</a></div>
+        <div class="hd">Buses<a href="#" id="legHide">hide ▾</a></div>
         <div id="legTools">
-          <div style="padding:7px 8px;border-bottom:1px solid var(--edge)">
-            <input id="busFilter" placeholder="filter buses…" autocomplete="off" style="width:100%;padding:5px 8px;border:1px solid var(--edge);border-radius:5px;font-size:12px"/>
-          </div>
-          <div style="padding:6px 9px;border-bottom:1px solid var(--edge);display:flex;gap:12px;font-size:12px">
-            <a href="#" id="mapSelAllLink">Show all</a><a href="#" id="mapDeselLink">Hide all</a>
+          <div class="legtools">
+            <input type="text" id="busFilter" placeholder="filter buses…" autocomplete="off"/>
+            <button type="button" id="mapSelAllLink">Show all</button>
+            <button type="button" id="mapDeselLink">Hide all</button>
           </div>
           <div class="body" id="mapLegend"></div>
         </div>

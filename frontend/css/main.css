@@ -43,14 +43,25 @@ tbody tr:hover{background:var(--signal-soft)}
 #gate h1{font-size:20px;margin:0 0 3px}#gate .sub{color:var(--slate);font-size:12.5px;margin-bottom:22px}
 .rule{height:3px;background:var(--signal);width:40px;margin-bottom:18px;border-radius:2px}
 
-#app{display:none;height:100%;grid-template-rows:auto auto 1fr}
-header{background:linear-gradient(180deg,var(--ink-2),var(--ink));color:#fff;height:52px;display:flex;align-items:center;gap:4px;padding:0 8px 0 16px;overflow-x:auto;box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 10px rgba(16,28,41,.25)}
-header .brand{font-weight:700;margin-right:8px;white-space:nowrap}header .brand span{color:var(--signal)}
-nav{display:flex;gap:2px}
-nav button{background:transparent;color:#aebccb;border:none;padding:8px 12px;border-radius:var(--r-s);white-space:nowrap;position:relative}
+/* #app is laid out as a flex column. It also carries explicit grid-row placement so the
+   layout survives if #app is ever set to display:grid — with the round strip hidden there
+   are only two in-flow children, and positional `auto auto 1fr` rows would hand `main`
+   the content-sized `auto` track instead of the filling `1fr` one, collapsing every map. */
+#app{display:none;height:100%;flex-direction:column;grid-template-rows:auto auto minmax(0,1fr);grid-template-columns:minmax(0,1fr)}
+#app>header{flex:0 0 auto;grid-row:1}
+#app>#roundStrip{flex:0 0 auto;grid-row:2}
+#app>main{flex:1 1 auto;min-height:0;grid-row:3}
+header{background:linear-gradient(180deg,var(--ink-2),var(--ink));color:#fff;height:52px;display:flex;align-items:center;gap:4px;padding:0 8px 0 16px;overflow:hidden;box-shadow:0 1px 0 rgba(255,255,255,.06) inset,0 2px 10px rgba(16,28,41,.25)}
+header .brand{font-weight:700;margin-right:8px;white-space:nowrap;flex:0 0 auto}header .brand span{color:var(--signal)}
+/* the tab strip absorbs the overflow, so a narrow window scrolls the tabs instead of
+   pushing a scrollbar into the 52px header and clipping the sign-out button */
+nav{display:flex;gap:2px;flex:0 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+nav::-webkit-scrollbar{display:none}
+nav button{background:transparent;color:#aebccb;border:none;padding:8px 12px;border-radius:var(--r-s);white-space:nowrap;position:relative;flex:0 0 auto}
 nav button:hover{color:#fff;background:rgba(255,255,255,.06)}
 nav button.on{background:#2a3f53;color:#fff;box-shadow:inset 0 -2px 0 var(--signal)}
-header .who{margin-left:auto;font-size:12px;color:#9fb0c0;margin-right:6px;white-space:nowrap}
+header .who{margin-left:auto;font-size:12px;color:#9fb0c0;margin-right:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px;flex:0 1 auto}
+header #outBtn{flex:0 0 auto}
 
 main{overflow:hidden;position:relative}
 .view{display:none;height:100%;overflow:auto}
@@ -70,7 +81,9 @@ main{overflow:hidden;position:relative}
 .item .nm{font-weight:600;flex:1;font-size:13.5px}.item .sr{font-size:11px;color:var(--slate)}.item .bs{font-size:11px;font-weight:600;background:#eef1f4;border-radius:4px;padding:1px 6px}
 .hint{padding:24px 16px;color:var(--slate);text-align:center}
 .work{overflow:auto;position:relative;height:100%}
-#map{height:100%;min-height:300px;position:relative}
+/* min-height:0 — the stacked media query below supplies a floor on narrow screens, and a
+   300px floor here would overflow the row on short viewports now that main is sized */
+#map{height:100%;min-height:0;position:relative}
 .editor{background:var(--panel);border-left:1px solid var(--edge);padding:16px 18px;overflow:auto;height:100%}
 .flag{display:inline-block;background:var(--temp-bg);color:var(--temp);border:1px solid #f0d3a8;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -116,8 +129,17 @@ summary::before{content:'+';display:inline-block;width:16px;color:var(--signal);
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(6px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:var(--r-m);font-size:13px;opacity:0;transition:opacity .25s,transform .25s;z-index:4000;pointer-events:none;max-width:90vw;box-shadow:var(--sh-3)}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}#toast.bad{background:var(--stop)}#toast.good{background:var(--ok)}
 .legend{position:absolute;top:10px;right:10px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-m);z-index:600;max-height:calc(100% - 20px);width:252px;display:flex;flex-direction:column;box-shadow:var(--sh-2)}
-.legend .hd{padding:8px 11px;font-weight:600;border-bottom:1px solid var(--edge);font-size:13px}.legend .body{overflow:auto;padding:5px}
-.legrow{display:flex;gap:8px;align-items:center;padding:5px 7px;border-radius:var(--r-s);cursor:pointer;font-size:13px;white-space:nowrap;transition:background var(--tr)}.legrow:hover{background:#f3f4f6}.legrow .sw{width:12px;height:12px;border-radius:3px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}.legrow .cnt{margin-left:auto;color:var(--slate);font-variant-numeric:tabular-nums}.legchk{flex:none;cursor:pointer}
+.legend .hd{padding:8px 11px;font-weight:600;border-bottom:1px solid var(--edge);font-size:13px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex:0 0 auto}
+.legend .hd a{font-weight:400;font-size:12px;color:var(--slate);text-decoration:none}.legend .hd a:hover{color:var(--ink)}
+.legend #legTools{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.legend .body{overflow:auto;padding:5px;flex:1 1 auto;min-height:0}
+.legtools{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--edge);flex-wrap:wrap;flex:0 0 auto}
+.legtools input{flex:1 1 90px;min-width:90px;width:auto;padding:5px 8px;font-size:12px}
+.legtools button{flex:0 0 auto;font-size:11px;padding:5px 9px;border:1px solid var(--edge);background:var(--panel-2);color:var(--ink)}
+.legtools button:hover{background:var(--signal-soft);border-color:var(--signal)}
+.legrow{display:flex;gap:8px;align-items:center;padding:5px 7px;border-radius:var(--r-s);cursor:pointer;font-size:13px;white-space:nowrap;transition:background var(--tr)}.legrow:hover{background:#f3f4f6}.legrow .sw{width:12px;height:12px;border-radius:3px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}.legrow .cnt{margin-left:auto;color:var(--slate);font-variant-numeric:tabular-nums}/* width:auto — without it the global input{width:100%} stretches the tick box across the
+   whole row and pushes the colour dot, name and rider count onto their own lines */
+.legchk{flex:none;cursor:pointer;width:auto;min-width:0;margin:0}
 .mapctl{position:absolute;bottom:14px;left:10px;z-index:600;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-m);padding:7px;display:flex;gap:6px;box-shadow:var(--sh-1)}
 .qbtn{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-s);padding:10px 12px;margin-bottom:7px;transition:border-color var(--tr),box-shadow var(--tr)}
 .qbtn:hover{border-color:var(--signal);box-shadow:var(--sh-1)}

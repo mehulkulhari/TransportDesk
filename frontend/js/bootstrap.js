@@ -7,7 +7,7 @@ import { db } from "./supabase.js";
 import { $, toast } from "./utils.js";
 export async function start() {
   const user = await getCurrentUser();
-  $('gate').style.display='none';$('app').style.display='grid';$('whoami').textContent=user?.email||'';
+  $('gate').style.display='none';$('app').style.display='flex';$('whoami').textContent=user?.email||'';
   const [{data:b},{data:sc},{data:bc}]=await Promise.all([
     db.from('buses').select('bus_id,capacity,latitude,longitude,mileage').order('bus_id'),
     db.from('schools').select('latitude,longitude,school_name').limit(1),
