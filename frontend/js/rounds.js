@@ -18,15 +18,29 @@ export async function roundBusIds(){
  */
 export async function searchRoundStudents(term,limit=40){
   term=(term||'').trim();
+  // PostgREST parses , ( ) inside .or() as syntax, so a name pasted with a comma would
+  // silently return nothing. Double-quote the pattern and escape what quoting cannot cover.
+  const t=term.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
   if(globalThis.tdRound!==2){
-    const {data}=await db.from('student_effective')
-      .select('id,sr_no,student_name,bus_id,using_temp_address,using_temp_bus')
-      .or(`student_name.ilike.%${term}%,sr_no.ilike.%${term}%`).limit(limit);
-    return data||[];
+    const [act,left]=await Promise.all([
+      db.from('student_effective')
+        .select('id,sr_no,student_name,bus_id,using_temp_address,using_temp_bus,uses_transport')
+        .or(`student_name.ilike."%${t}%",sr_no.ilike."%${t}%"`).limit(limit),
+      // student_effective hides inactive rows, so a child who left the school could never be
+      // found again — and the "reversible" promise on that button was unreachable.
+      db.from('students').select('id,sr_no,name,bus_no,uses_transport')
+        .eq('active',false).or(`name.ilike."%${t}%",sr_no.ilike."%${t}%"`).limit(limit),
+    ]);
+    if(act.error) console.error(act.error);
+    const rows=(act.data||[]).map(r=>({...r,left_school:false}));
+    (left.data||[]).forEach(r=>rows.push({id:r.id,sr_no:r.sr_no,student_name:r.name,bus_id:r.bus_no,
+      uses_transport:r.uses_transport,using_temp_address:false,using_temp_bus:false,left_school:true}));
+    return rows;
   }
-  const {data}=await db.from('students_round2')
+  const {data,error}=await db.from('students_round2')
     .select('id,sr_no,name,bus_no,class,section,pickup_order,latitude,longitude')
-    .eq('active',true).or(`name.ilike.%${term}%,sr_no.ilike.%${term}%`).limit(limit);
+    .eq('active',true).or(`name.ilike."%${t}%",sr_no.ilike."%${t}%"`).limit(limit);
+  if(error) console.error(error);
   return (data||[]).map(r=>({id:r.id,sr_no:r.sr_no,student_name:r.name,bus_id:r.bus_no,
     klass:r.class,section:r.section,pickup_order:r.pickup_order,
     latitude:r.latitude,longitude:r.longitude,using_temp_address:false,using_temp_bus:false}));

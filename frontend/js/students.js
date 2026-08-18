@@ -84,13 +84,30 @@ export async function openStudentR2(id){
 
 export function renderList(box,data,onclick){
   if(!data||!data.length){box.innerHTML='<div class="hint">No match.</div>';return;}
-  box.innerHTML=data.map(s=>`<div class="item" data-id="${s.id}"><span class="nm">${esc(s.student_name)}${(s.using_temp_address||s.using_temp_bus)?' <span class="flag">TEMP</span>':''}</span><span class="sr mono">${esc(s.sr_no)}</span><span class="bs">Bus ${esc(s.bus_id??'—')}</span></div>`).join('');
+  // The badge must say what the child actually does. Showing "Bus 57" for someone who comes
+  // by self, or for someone who has left the school, reads as a live bus assignment.
+  const badge=s=>{
+    if(s.left_school) return '<span class="bs" style="background:#fdf0ee;color:var(--stop)">Left school</span>';
+    if(s.uses_transport===false) return '<span class="bs" style="background:#eef2ff;color:#3a4a8f">Comes by self</span>';
+    return `<span class="bs">Bus ${esc(s.bus_id??'—')}</span>`;
+  };
+  box.innerHTML=data.map(s=>`<div class="item" data-id="${s.id}"><span class="nm">${esc(s.student_name)}${(s.using_temp_address||s.using_temp_bus)?' <span class="flag">TEMP</span>':''}</span><span class="sr mono">${esc(s.sr_no)}</span>${badge(s)}</div>`).join('');
   [...box.querySelectorAll('.item')].forEach(el=>el.onclick=()=>{box.querySelectorAll('.item').forEach(x=>x.classList.remove('on'));el.classList.add('on');onclick(el.dataset.id);});
 }
 
 export async function openStudent(id){
-  const {data,error}=await db.from('student_effective').select('*').eq('id',id).single();
-  if(error){toast(error.message,'bad');return;}
+  let {data}=await db.from('student_effective').select('*').eq('id',id).maybeSingle();
+  // student_effective hides inactive rows; fall back to the raw record so a child who left
+  // the school can still be opened and brought back.
+  let leftSchool=false;
+  if(!data){
+    const {data:raw,error:rawErr}=await db.from('students').select('*').eq('id',id).maybeSingle();
+    if(rawErr||!raw){toast(rawErr?rawErr.message:'Student not found','bad');return;}
+    leftSchool=true;
+    data={...raw, student_name:raw.name, bus_id:raw.bus_no, permanent_bus:raw.bus_no,
+      permanent_latitude:raw.latitude, permanent_longitude:raw.longitude,
+      using_temp_address:false, using_temp_bus:false};
+  }
   // road time to school for the profile
   const {data:rt}=await db.from('students').select('road_km_to_school,road_min_to_school,uses_transport').eq('id',id).single();
   const roadTxt = rt&&rt.road_min_to_school!=null ? `${rt.road_min_to_school} min (${rt.road_km_to_school} km)` : '—';
@@ -112,6 +129,10 @@ export async function openStudent(id){
       <span class="note">Class ${esc(data.class)}${data.section?'-'+esc(data.section):''}</span>
       ${data.using_temp_address?'<span class="flag">Temp address</span>':''}${data.using_temp_bus?'<span class="flag">Temp bus</span>':''}
       ${usesTransport?'':'<span class="flag" style="background:#eef;color:#446">Comes by self</span>'}</div>
+    ${leftSchool?`<div class="databanner bad">
+      <span><b>This student has left the school.</b> They are off every roster, count, alert and
+      route. Bring them back if they have returned.</span>
+      <button class="b-ghost" id="restoreBtn">Bring back to school</button></div>`:''}
     ${alsoR2?`<div class="databanner bad">
       <span>This child is active in <b>both rounds</b> — also on Round&nbsp;2 Bus ${esc(alsoR2.bus_no)}.
       A child rides one round only, so Round-1 rosters, capacity and fuel are counting them twice.</span>
@@ -124,12 +145,12 @@ export async function openStudent(id){
       <span class="note" style="margin-left:auto">${usesTransport?'Currently on Bus '+esc(data.bus_id):'Removed from bus rosters &amp; capacity'}</span>
     </div>
     <div class="grid" style="margin-bottom:8px">
-      ${pv('Current bus','Bus '+esc(data.bus_id))}
-      ${pv('Pickup order',data.pickup_order??'—')}
-      ${pv('Time to school',roadTxt)}
+      ${pv('Current bus',usesTransport?('Bus '+esc(data.bus_id)):'<span class="note">Not on a bus</span>')}
+      ${pv('Pickup order',usesTransport?(data.pickup_order??'—'):'—')}
+      ${pv('Time to school',usesTransport?roadTxt:'<span class="note">—</span>')}
       ${pv('Parent',esc(parentName||'—'))}
       ${pv('Phone',esc(parentPhone||'—'))}
-      ${pv('Permanent bus','Bus '+esc(data.permanent_bus))}</div>
+      ${pv(usesTransport?'Permanent bus':'Bus if they rejoin','Bus '+esc(data.permanent_bus))}</div>
     ${prof?`<details open style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate)">Student profile</summary>
       <div class="grid" style="margin-top:8px">
         ${pv('Father',esc(prof.father_name||'—'))}
@@ -188,6 +209,12 @@ export async function openStudent(id){
       mapReady=false;                       // the route map must rebuild without them
       searchStudents($('q').value);loadDashboard();
     }
+  };
+  if($('restoreBtn')) $('restoreBtn').onclick=async()=>{
+    const {error}=await db.from('students').update({active:true,updated_by:'restored'}).eq('id',data.id);
+    if(error){toast(error.message,'bad');return;}
+    toast(`${data.student_name} is back on the rolls`,'good');
+    mapReady=false;openStudent(data.id);searchStudents($('q').value);loadDashboard();
   };
   if($('fixDup')) $('fixDup').onclick=async()=>{
     if(!confirm(`${data.student_name} is active in both rounds.\n\nKeep them in Round 2 only? Their Round-1 row is deactivated (reversible).`)) return;
