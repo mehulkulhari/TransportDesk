@@ -99,7 +99,9 @@ export async function buildGeography(){
   if(!repMap){repMap=L.map('repMap').setView([school?school.latitude:27.578,school?school.longitude:75.137],11);
     addBaseLayer(repMap);}
   setTimeout(()=>repMap.invalidateSize(),60);
-  const data=await fetchAll('bus_roster','latitude,longitude,pickup_order,bus_id');
+  let data;
+  try{ data=await fetchAll('bus_roster','latitude,longitude,pickup_order,bus_id'); }
+  catch(e){ console.error(e); $('repOverlap').innerHTML='<div class="note" style="color:var(--stop)">Could not load the roster — reopen this tab to retry.</div>'; return; }
   repStudentPts=(data||[]).filter(s=>s.latitude!=null).map(s=>[s.latitude,s.longitude,0.6]);
   // route density: sample midpoints between consecutive stops so corridors light up
   const byBus={};(data||[]).forEach(s=>{if(s.latitude!=null)(byBus[s.bus_id]=byBus[s.bus_id]||[]).push(s);});

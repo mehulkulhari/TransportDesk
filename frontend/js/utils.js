@@ -5,7 +5,9 @@ export async function fetchAll(table,columns){
   const N=1000;let from=0,all=[];
   while(true){
     const {data,error}=await db.from(table).select(columns).range(from,from+N-1);
-    if(error){console.error(error);break;}
+    // Throw rather than return the pages fetched so far: a partial roster is
+    // indistinguishable from a complete one and gets presented as fact.
+    if(error) throw error;
     all=all.concat(data||[]);
     if(!data||data.length<N)break;
     from+=N;

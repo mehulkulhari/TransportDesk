@@ -32,6 +32,7 @@ export function enableStopFanOut(){
 }
 
 function fan(key, list){
+  routeMap.closePopup();       // the click also opened the stacked top marker's popup
   spiderLayer = L.layerGroup().addTo(routeMap);
   const c = [list[0].lat, list[0].lon];
   const zoom = routeMap.getZoom();
@@ -96,29 +97,56 @@ export function focusMove(srs, destBus){
   routeMap.fitBounds(L.latLngBounds(pts).pad(0.45));
 }
 
-/* ---------- 3. draw a bus's NEW pickup order ---------- */
+/* ---------- 3. draw a bus's pickup order ---------- */
+// Round 1: the PROPOSED order from the opt_resequence snapshot (not yet applied).
+// Round 2: the SAVED order from students_round2.pickup_order — the R2 optimizer already
+// wrote its improved order there, so opt_resequence (a Round-1 table whose sr_nos don't
+// exist on the R2 map) must never be consulted here.
 export async function showNewOrder(busId){
   if(!globalThis.routeMap) return;
-  const { data } = await db.from('opt_resequence').select('new_order,now_km,opt_km,save_rs').eq('bus_id',busId).maybeSingle();
-  if(!data || !data.new_order){ toast('No new order stored for bus '+busId,'bad'); return; }
+  const r2 = globalThis.tdRound===2;
+  let srSeq, toastMsg, label;
+  if(r2){
+    const [{data:kids},{data:geo}] = await Promise.all([
+      db.from('students_round2').select('sr_no,pickup_order').eq('bus_no',busId).eq('active',true)
+        .order('pickup_order',{ascending:true}),
+      db.from('r2_route_geo').select('road_km,seq_km,reordered,reorder_saving_rs').eq('bus_id',busId).maybeSingle()]);
+    if(!kids || !kids.length){ toast('No stored order for bus '+busId,'bad'); return; }
+    srSeq = kids.map(k=>String(k.sr_no));
+    label = 'saved order';
+    toastMsg = geo
+      ? (geo.reordered
+          ? `Bus ${busId}: saved order — ${Number(geo.seq_km).toFixed(1)} → ${Number(geo.road_km).toFixed(1)} km (₹${Math.round(geo.reorder_saving_rs).toLocaleString('en-IN')}/yr from the re-order)`
+          : `Bus ${busId}: saved order — ${Number(geo.road_km).toFixed(1)} km on real roads`)
+      : `Bus ${busId}: saved order`;
+  }else{
+    const { data } = await db.from('opt_resequence').select('new_order,now_km,opt_km,save_rs').eq('bus_id',busId).maybeSingle();
+    if(!data || !data.new_order){ toast('No new order stored for bus '+busId,'bad'); return; }
+    srSeq = data.new_order.split(';');
+    label = 'proposed order';
+    toastMsg = `Bus ${busId}: proposed order — ${data.now_km} → ${data.opt_km} km`;
+  }
   if(focusLayer) routeMap.removeLayer(focusLayer);
   focusLayer = L.layerGroup().addTo(routeMap);
   const bySr = {}; studentMarkers.forEach(s=>{ if(String(s.bus)===String(busId)) bySr[String(s.sr_no)] = s; });
-  const seq = data.new_order.split(';').map(x=>bySr[x]).filter(Boolean);
+  const seq = srSeq.map(x=>bySr[x]).filter(Boolean);
   if(!seq.length){ toast('Order could not be matched to stops','bad'); return; }
   const col = (globalThis.colorOf && colorOf[busId]) || '#0b6e4f';
   const path = seq.map(s=>[s.lat,s.lon]);
-  if(globalThis.school) path.push([school.latitude, school.longitude]);
+  if(globalThis.school){
+    path.push([school.latitude, school.longitude]);
+    if(r2) path.unshift([school.latitude, school.longitude]);   // R2 loops start AND end at school
+  }
   L.polyline(path, {color:col, weight:5, opacity:.65, dashArray:'10,7'}).addTo(focusLayer);
   seq.forEach((s,i)=>{
     L.marker([s.lat,s.lon], {icon:L.divIcon({className:'', iconSize:[26,26], iconAnchor:[13,13], html:
       `<div style="width:26px;height:26px;border-radius:50%;background:${col};color:#fff;border:2px solid #fff;
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
         box-shadow:0 1px 4px rgba(0,0,0,.45)">${i+1}</div>`})})
-      .addTo(focusLayer).bindPopup(`<b>#${i+1} ${esc(s.display||'')}</b><br>Bus ${busId} — proposed order<br><span class="mono">SR ${esc(s.sr_no)}</span>`);
+      .addTo(focusLayer).bindPopup(`<b>#${i+1} ${esc(s.display||'')}</b><br>Bus ${busId} — ${label}<br><span class="mono">SR ${esc(s.sr_no)}</span>`);
   });
   routeMap.fitBounds(L.latLngBounds(path).pad(0.15));
-  toast(`Bus ${busId}: proposed order — ${data.now_km} → ${data.opt_km} km`,'good');
+  toast(toastMsg,'good');
 }
 
 Object.assign(globalThis, { enableStopFanOut, focusMove, showNewOrder });

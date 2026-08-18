@@ -148,3 +148,18 @@ summary::before{content:'+';display:inline-block;width:16px;color:var(--signal);
 .roundswitch button:hover{color:#fff}
 .roundswitch button.on{background:var(--signal);color:var(--ink)}
 #roundStrip{background:linear-gradient(90deg,#fff3d6,#fdf1df);border-bottom:1px solid #f0d3a8;color:#7a5300;font-size:12.5px;padding:7px 18px}
+
+/* modal dialog (round moves) */
+.modalwrap{position:fixed;inset:0;z-index:4000;background:rgba(16,28,41,.45);display:flex;align-items:center;justify-content:center;padding:20px;animation:modalin .14s ease-out}
+@keyframes modalin{from{opacity:0}to{opacity:1}}
+.modalcard{background:var(--panel);border-radius:var(--r-l);box-shadow:var(--sh-3);padding:22px 24px;width:min(460px,96vw);max-height:90vh;overflow:auto}
+.modalcard h3{margin:0 0 8px;font-size:17px}
+.modalcard .note{margin:0 0 8px}
+.modalcard .actions{margin-top:16px}
+
+/* a student who is in both rounds at once, or has no coordinates */
+.databanner{border-radius:var(--r-m);padding:10px 13px;margin-bottom:10px;font-size:12.5px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.databanner.bad{background:var(--stop-bg);border:1px solid #e7b7b1;color:#7f2318}
+.databanner.warn{background:var(--temp-bg);border:1px solid #f0d3a8;color:#7a4a09}
+.databanner b{font-weight:700}
+.databanner button{margin-left:auto;flex:none}

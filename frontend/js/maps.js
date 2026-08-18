@@ -72,34 +72,49 @@ export async function openRouteMap(){
   setTimeout(()=>routeMap.invalidateSize(),60);
   setTimeout(()=>{routeMap.invalidateSize();},350);
   if(mapReady){setTimeout(()=>fitMapChecked&&fitMapChecked(),380);return;}
-  let data, geo, rideRows;
-  if(globalThis.tdRound===2){
-    const [{data:r2},{data:rt}]=await Promise.all([
-      db.from('students_round2').select('sr_no,name,bus_no,latitude,longitude,pickup_order').eq('active',true),
-      db.from('r2_route_geo').select('bus_id,road_km,drive_min,encoded_polyline')]);
-    data=(r2||[]).filter(x=>x.latitude!=null).map(x=>({sr_no:x.sr_no,student_name:x.name,bus_id:x.bus_no,
-      pickup_order:x.pickup_order,latitude:x.latitude,longitude:x.longitude,
-      bus_has_depot:false,depot_lat:null,depot_lon:null,road_km_to_school:null,road_min_to_school:null}));
-    // Round-2 shapes and distances are measured on real roads by Google Directions over the
-    // school -> children -> school loop, so these draw as actual roads, not straight legs.
-    // drive_min is Google's driving time and does NOT include time stopped at each stop.
-    geo=(rt||[]).map(r=>({bus_id:r.bus_id,road_km:r.road_km,est_min:r.drive_min,
-      duration_min:r.drive_min,encoded_polyline:r.encoded_polyline}));
-    rideRows=[];           // per-student fuel shares are a Round-1 figure
-  }else{
-    const res=await Promise.all([
-      fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
-      db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline'),
-      fetchAll('opt_student_fuel','sr_no,ride_km,ride_min')]);
-    data=res[0]; geo=res[1].data; rideRows=res[2];
+  // A failed load must NOT latch mapReady: fetchAll throws on error now, we surface the
+  // failure, and the next visit to the tab retries — instead of an undercounted roster
+  // being presented as complete for the rest of the session.
+  if(globalThis.mapLoading) return;              // re-entrancy: a second click while loading
+  globalThis.mapLoading=true;                    // would duplicate every layer on the map
+  let data, geo, rideRows, teacherRows=[];
+  try{
+    if(globalThis.tdRound===2){
+      const [r2q,rtq]=await Promise.all([
+        db.from('students_round2').select('sr_no,name,bus_no,latitude,longitude,pickup_order').eq('active',true),
+        db.from('r2_route_geo').select('bus_id,road_km,drive_min,encoded_polyline')]);
+      if(r2q.error) throw r2q.error; if(rtq.error) throw rtq.error;
+      data=(r2q.data||[]).filter(x=>x.latitude!=null).map(x=>({sr_no:x.sr_no,student_name:x.name,bus_id:x.bus_no,
+        pickup_order:x.pickup_order,latitude:x.latitude,longitude:x.longitude,
+        bus_has_depot:false,depot_lat:null,depot_lon:null,road_km_to_school:null,road_min_to_school:null}));
+      // Round-2 shapes and distances are measured on real roads by Google Directions over the
+      // school -> children -> school loop, so these draw as actual roads, not straight legs.
+      // drive_min is Google's driving time and does NOT include time stopped at each stop.
+      geo=(rtq.data||[]).map(r=>({bus_id:r.bus_id,road_km:r.road_km,est_min:r.drive_min,
+        duration_min:r.drive_min,encoded_polyline:r.encoded_polyline}));
+      rideRows=[];           // per-student fuel shares are a Round-1 figure
+    }else{
+      const res=await Promise.all([
+        fetchAll('bus_roster','sr_no,student_name,bus_id,pickup_order,latitude,longitude,depot_lat,depot_lon,bus_has_depot,road_km_to_school,road_min_to_school'),
+        db.from('bus_route_geo').select('bus_id,road_km,duration_min,est_min,encoded_polyline,factor'),
+        fetchAll('opt_student_fuel','sr_no,ride_km,ride_min')]);
+      if(res[1].error) throw res[1].error;
+      data=res[0]; geo=res[1].data; rideRows=res[2];
+    }
+    // Teachers ride in with the students on the Round-1 morning run (and do not ride back),
+    // so on Round 1 they are genuine stops on these routes. Round 2 carries no teachers.
+    if(globalThis.tdRound!==2){
+      const {data:tt,error:te}=await db.from('teachers').select('name,emp_code,latitude,longitude,bus_no').not('latitude','is',null);
+      if(te) throw te;
+      teacherRows=tt||[];
+    }
+  }catch(e){
+    globalThis.mapLoading=false;
+    toast('Could not load the routes — check the connection and reopen this tab','bad');
+    console.error(e);
+    return;
   }
-  // Teachers ride in with the students on the Round-1 morning run (and do not ride back),
-  // so on Round 1 they are genuine stops on these routes. Round 2 carries no teachers.
-  let teacherRows=[];
-  if(globalThis.tdRound!==2){
-    const {data:tt}=await db.from('teachers').select('name,emp_code,latitude,longitude,bus_no').not('latitude','is',null);
-    teacherRows=tt||[];
-  }
+  globalThis.mapLoading=false;
   const teachersByBus={};
   teacherRows.forEach(t=>{const b=String(t.bus_no==null?'':t.bus_no).trim();
     if(!b||b.toLowerCase()==='self')return;            // 'self' = makes their own way in
@@ -126,8 +141,10 @@ export async function openRouteMap(){
   const midCell = isR2
     ? statCell(busIds.length?(totRoad/busIds.length).toFixed(1):'0.0','Avg km per route')
     : statCell(avgKm.toFixed(1),'Avg km to school');
+  // count only teachers who actually ride a rendered bus — not the come-by-self ones
+  const ridingTeachers=busIds.reduce((a,b)=>a+((teachersByBus[String(b)]||[]).length),0);
   $('mapStats').innerHTML = statCell(data.length,isR2?'Children':'Students')+
-    (teacherRows.length?statCell(teacherRows.length,'Teachers (a.m.)'):'')+
+    (ridingTeachers?statCell(ridingTeachers,'Teachers (a.m.)'):'')+
     statCell(busIds.length,'Buses')+ midCell +
     statCell(Math.round(totRoad),'Total road km').replace('border-right:1px solid var(--edge)','');
 
@@ -176,14 +193,18 @@ export async function openRouteMap(){
                  : (s.road_min_to_school!=null ? `${s.road_min_to_school} min · ${s.road_km_to_school} km by road to school`
                    : `${hav(s.latitude,s.longitude,school.latitude,school.longitude).toFixed(1)} km straight-line to school`);
       const m=L.circleMarker([s.latitude,s.longitude],{radius:6,weight:1,color:'#1f2933',opacity:.85,fillColor:col,fillOpacity:.9});
-      m.bindPopup(`<b>${esc(s.student_name)}</b><br><span class="legdot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:4px"></span>Bus ${bus} · pickup #${i+1}<br><span class="mono">SR ${esc(s.sr_no)}</span><br>${road}<br><a href="#" data-nearest="${s.latitude},${s.longitude}" data-bus="${bus}">Show this bus + 3 nearest ▾</a><div class="nearbox"></div>`);
+      // "3 nearest" runs the assign_impact RPC, which answers from Round-1 routes and
+      // loads — offering it on the Round-2 map would quote wrong detours and seats, and
+      // could toggle buses that do not run Round 2. Suppressed there.
+      const nearLink = isR2 ? '' : `<br><a href="#" data-nearest="${s.latitude},${s.longitude}" data-bus="${bus}">Show this bus + 3 nearest ▾</a><div class="nearbox"></div>`;
+      m.bindPopup(`<b>${esc(s.student_name)}</b><br><span class="legdot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:4px"></span>Bus ${bus} · pickup #${i+1}<br><span class="mono">SR ${esc(s.sr_no)}</span><br>${road}${nearLink}`);
       m.on('popupopen',ev=>{const el=ev.popup.getElement().querySelector('a[data-nearest]');if(!el)return;
         el.onclick=async(e)=>{e.preventDefault();const [la,lo]=el.dataset.nearest.split(',').map(Number);const cur=el.dataset.bus;
           const box=ev.popup.getElement().querySelector('.nearbox');box.textContent='…';
           const {data:n}=await db.rpc('assign_impact',{p_lat:la,p_lon:lo,p_n:5});
           const others=(n||[]).filter(r=>String(r.bus_id)!==String(cur)).slice(0,3);
           setCheckedBuses([Number(cur),...others.map(r=>r.bus_id)]);
-          box.innerHTML=`<div style="margin-top:4px">Now showing 4 buses:</div>Bus ${cur} (current)<br>`+
+          box.innerHTML=`<div style="margin-top:4px">Now showing ${1+others.length} buses:</div>Bus ${cur} (current)<br>`+
             others.map(r=>`Bus ${r.bus_id} · ${r.detour_km} km detour · ${r.seats_left} seats${r.has_room?'':' (full)'}`).join('<br>');};});
       m.addTo(g);
       studentMarkers.push({sr_no:String(s.sr_no),name:(s.student_name||'').toLowerCase(),display:s.student_name,lat:s.latitude,lon:s.longitude,bus,marker:m});
@@ -207,7 +228,7 @@ export async function openRouteMap(){
       <span class="sw" style="background:${col};border-radius:50%"></span>
       <span class="nm" style="flex:1;cursor:pointer">${diamond}Bus ${bus}${tBadge}</span>
       <span class="cnt" style="color:${cntColor}${cntColor!=='var(--slate)'?';font-weight:600':''}">${riders}${cap?'/'+cap:''}</span>
-      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?Number(info.roadKm).toFixed(2)+' km':'—'}${info.min?` · ~${info.min} min`:''} ${globalThis.tdRound===2?'(driving, excl. stops)':'(with stops)'}</div>${tLine}`;
+      <div style="flex-basis:100%;padding-left:24px;color:var(--slate);font-size:11px">🚌 ${info.roadKm?Number(info.roadKm).toFixed(2)+' km':'—'}${info.min?` · ~${info.min} min ${isR2?'(driving, excl. stops)':'(with stops)'}`:''}</div>${tLine}`;
     leg.appendChild(row);
     row.querySelector('.legchk').onchange=e=>{e.stopPropagation();toggleBus(bus,e.target.checked);};
     row.querySelector('.nm').onclick=e=>{e.preventDefault();isolate(bus);};});

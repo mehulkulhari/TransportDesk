@@ -2,6 +2,8 @@
 // Functions access legacy runtime state through the global bridge in app.js.
 
 import { roundBusIds, searchRoundStudents } from "./rounds.js";
+import { moveStudentRound } from "./roundmove.js";
+import { db } from "./supabase.js";
 
 export async function searchStudents(term){term=term.trim();
   if(term.length<2){$('results').innerHTML='<div class="hint">Type a name or SR number.</div>';return;}
@@ -38,23 +40,45 @@ export async function openStudentR2(id){
     </div>
     <div class="actions"><button class="b-primary" id="saveBtn" disabled>Save changes</button>
       <button class="b-ghost" id="resetBtn">Undo pin</button>
+      <button class="b-ghost" id="toR1Btn" title="This child now travels with the older students' round">🚌 Move to Round 1</button>
       <span class="note" id="lastEdit">${data.updated_by?('Last edited by '+esc(data.updated_by)):''}</span></div>
     <div class="note" style="margin-top:10px">Moving a child to another bus clears their driving order — re-run the Round 2 order from the Optimization tab afterwards so both routes stay correct.</div>`;
+  // Clear any pin left from the previously opened student — otherwise a child with no
+  // coordinates inherits the last pin, and saving would write ANOTHER student's address.
+  globalThis.pinHome={lat:data.latitude!=null?+data.latitude:null, lon:data.longitude!=null?+data.longitude:null};
+  if(pin){try{map.removeLayer(pin);}catch(e){} pin=undefined;}
   if(data.latitude!=null){setPin(+data.latitude,+data.longitude,false);map.setView([+data.latitude,+data.longitude],16);}
+  else{$('cLat').textContent='—';$('cLon').textContent='—';if(school)map.setView([school.latitude,school.longitude],12);}
   $('saveBtn').disabled=true;
   ['busSelR2','clsR2','secR2'].forEach(k=>$(k).oninput=$(k).onchange=()=>$('saveBtn').disabled=false);
-  $('resetBtn').onclick=()=>{if(data.latitude!=null)setPin(+data.latitude,+data.longitude,false);$('saveBtn').disabled=true;};
+  $('resetBtn').onclick=()=>{
+    if(pinHome.lat!=null)setPin(pinHome.lat,pinHome.lon,false);
+    else if(pin){try{map.removeLayer(pin);}catch(e){} pin=undefined;$('cLat').textContent='—';$('cLon').textContent='—';}
+    $('saveBtn').disabled=true;};
   $('saveBtn').onclick=async()=>{
     const newBus=parseInt($('busSelR2').value,10);
     const rec={bus_no:newBus,class:$('clsR2').value.trim()||null,section:$('secR2').value.trim()||null,
       updated_at:new Date().toISOString()};
-    const lat=parseFloat($('cLat').textContent),lon=parseFloat($('cLon').textContent);
-    if(Number.isFinite(lat)&&Number.isFinite(lon)){rec.latitude=lat;rec.longitude=lon;}
+    // write coordinates only if the pin was genuinely moved for THIS child
+    if(pin){
+      const p=pin.getLatLng();
+      const moved = pinHome.lat==null ||
+        Math.abs(p.lat-pinHome.lat)>1e-6 || Math.abs(p.lng-pinHome.lon)>1e-6;
+      if(moved){rec.latitude=+p.lat.toFixed(6);rec.longitude=+p.lng.toFixed(6);}
+    }
     // a bus change makes the stored driving order meaningless for both buses
     if(String(newBus)!==String(data.bus_no)) rec.pickup_order=null;
     const {error}=await db.from('students_round2').update(rec).eq('id',id);
     if(error){toast(error.message,'bad');return;}
     toast('Saved','good');openStudentR2(id);
+  };
+  $('toR1Btn').onclick=async()=>{
+    if(await moveStudentRound(data.sr_no,1)){
+      current=null;$('form').style.display='none';$('empty').style.display='block';
+      if(pin){try{map.removeLayer(pin);}catch(e){} pin=undefined;}
+      mapReady=false;                       // the Round-2 map must rebuild without them
+      searchStudents($('q').value);loadDashboard();
+    }
   };
 }
 
@@ -75,6 +99,11 @@ export async function openStudent(id){
   const {data:prof}=await db.from('student_profiles').select('*').eq('sr_no',data.sr_no).maybeSingle();
   const parentName = data.parent_name || (prof&&prof.father_name) || null;
   const parentPhone = data.phone || (prof&&prof.father_phone) || null;
+  // A child rides one round only. An active row in both tables makes Round-1 analytics
+  // count a Round-2 child, so surface it here with the one-click resolution.
+  const {data:alsoR2}=await db.from('students_round2')
+    .select('bus_no').eq('sr_no',data.sr_no).eq('active',true).maybeSingle();
+  const noCoords = data.permanent_latitude==null;
   current=data;$('empty').style.display='none';const f=$('form');f.style.display='block';
   const busOpts=buses.map(b=>`<option value="${b.bus_id}" ${String(b.bus_id)===String(data.permanent_bus)?'selected':''}>Bus ${b.bus_id} · ${b.capacity} seats</option>`).join('');
   const pv=(k,v)=>`<div class="coord"><div class="k">${k}</div><div class="v">${v}</div></div>`;
@@ -83,7 +112,14 @@ export async function openStudent(id){
       <span class="note">Class ${esc(data.class)}${data.section?'-'+esc(data.section):''}</span>
       ${data.using_temp_address?'<span class="flag">Temp address</span>':''}${data.using_temp_bus?'<span class="flag">Temp bus</span>':''}
       ${usesTransport?'':'<span class="flag" style="background:#eef;color:#446">Comes by self</span>'}</div>
-    <div style="background:${usesTransport?'#f7f8fa':'#eef2ff'};border:1px solid var(--edge);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px">
+    ${alsoR2?`<div class="databanner bad">
+      <span>This child is active in <b>both rounds</b> — also on Round&nbsp;2 Bus ${esc(alsoR2.bus_no)}.
+      A child rides one round only, so Round-1 rosters, capacity and fuel are counting them twice.</span>
+      <button class="b-ghost" id="fixDup" style="border-color:#e7b7b1;color:var(--stop)">Keep in Round 2 only</button></div>`:''}
+    ${noCoords?`<div class="databanner warn">
+      <span><b>No pickup point on file.</b> Click the map at their home to set it — until then this
+      child is missing from the route map, the pickup order and every distance figure.</span></div>`:''}
+    <div style="background:${usesTransport?'#f7f8fa':'#eef2ff'};border:1px solid var(--edge);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0"><input type="checkbox" id="selfTransport" ${usesTransport?'':'checked'}> Comes by self (not on school transport)</label>
       <span class="note" style="margin-left:auto">${usesTransport?'Currently on Bus '+esc(data.bus_id):'Removed from bus rosters &amp; capacity'}</span>
     </div>
@@ -108,8 +144,8 @@ export async function openStudent(id){
       </details>`:`<div class="note" style="margin-bottom:10px">No profile on file for this student yet — upload the whole-school CSV in Bulk to add it.</div>`}
     <div class="note">Edit below — drag the pin or click the map to set the pickup point.</div>
     <div class="grid" style="margin-top:12px">
-      <div class="coord"><div class="k">Latitude</div><div class="v mono" id="cLat">${(+data.permanent_latitude).toFixed(6)}</div></div>
-      <div class="coord"><div class="k">Longitude</div><div class="v mono" id="cLon">${(+data.permanent_longitude).toFixed(6)}</div></div>
+      <div class="coord"><div class="k">Latitude</div><div class="v mono" id="cLat">${data.permanent_latitude!=null?(+data.permanent_latitude).toFixed(6):'—'}</div></div>
+      <div class="coord"><div class="k">Longitude</div><div class="v mono" id="cLon">${data.permanent_longitude!=null?(+data.permanent_longitude).toFixed(6):'—'}</div></div>
       <div><label>Permanent bus</label><select id="busSel">${busOpts}</select></div>
       <div><label>Pickup order</label><input id="pkIn" type="number" min="1" value="${data.pickup_order??''}" placeholder="unset"/></div>
       <div><label>Parent name</label><input id="parIn" value="${esc(data.parent_name||'')}"/></div>
@@ -118,15 +154,49 @@ export async function openStudent(id){
     <div class="field" style="margin-top:12px"><label>Why the change (optional)</label><input id="noteIn" placeholder="e.g. shifted house"/></div>
     <div class="actions"><button class="b-primary" id="saveBtn" disabled>Save changes</button>
       <button class="b-ghost" id="resetBtn">Undo pin</button>
+      <button class="b-ghost" id="toR2Btn" title="This child now travels with the small children's round">🚸 Move to Round 2</button>
       <button class="b-ghost" id="leftBtn" style="color:#b42318;border-color:#e7b7b1;margin-left:auto">Student left school</button>
       <span class="note" id="lastEdit">${data.updated_by?('Last edited by '+esc(data.updated_by)):''}</span></div>
     <details><summary>Change history &amp; undo</summary><div id="hist" class="note" style="margin-top:8px">Loading…</div></details>`;
-  setPin(+data.latitude,+data.longitude,false);map.setView([+data.latitude,+data.longitude],16);$('saveBtn').disabled=true;
+  // The editor edits the PERMANENT record, so the pin must show the permanent address —
+  // pinning the effective coords would silently make an active temporary address permanent
+  // on the next save. And a student with no coordinates must not get a (0,0) pin: +null
+  // is 0, and saving would write latitude 0, longitude 0 into the record.
+  const homeLat=data.permanent_latitude!=null?+data.permanent_latitude:null;
+  const homeLon=data.permanent_longitude!=null?+data.permanent_longitude:null;
+  globalThis.pinHome={lat:homeLat,lon:homeLon};
+  if(pin){try{map.removeLayer(pin);}catch(e){} pin=undefined;}
+  if(homeLat!=null){setPin(homeLat,homeLon,false);map.setView([homeLat,homeLon],16);}
+  else{
+    $('cLat').textContent='—';$('cLon').textContent='—';
+    if(school)map.setView([school.latitude,school.longitude],12);
+    toast('No coordinates on file — click the map at their home to set them','warn');
+  }
+  $('saveBtn').disabled=true;
   ['busSel','pkIn','parIn','phIn'].forEach(idf=>$(idf).oninput=$(idf).onchange=()=>$('saveBtn').disabled=false);
   $('selfTransport').onchange=()=>$('saveBtn').disabled=false;
   $('saveBtn').onclick=saveStudent;
-  $('resetBtn').onclick=()=>{setPin(+data.latitude,+data.longitude,false);$('saveBtn').disabled=true;};
+  $('resetBtn').onclick=()=>{
+    if(pinHome.lat!=null){setPin(pinHome.lat,pinHome.lon,false);}
+    else if(pin){try{map.removeLayer(pin);}catch(e){} pin=undefined;$('cLat').textContent='—';$('cLon').textContent='—';}
+    $('saveBtn').disabled=true;};
   $('leftBtn').onclick=removeStudent;
+  $('toR2Btn').onclick=async()=>{
+    if(await moveStudentRound(data.sr_no,2)){
+      current=null;$('form').style.display='none';$('empty').style.display='block';
+      if(pin){try{map.removeLayer(pin);}catch(e){} pin=undefined;}
+      mapReady=false;                       // the route map must rebuild without them
+      searchStudents($('q').value);loadDashboard();
+    }
+  };
+  if($('fixDup')) $('fixDup').onclick=async()=>{
+    if(!confirm(`${data.student_name} is active in both rounds.\n\nKeep them in Round 2 only? Their Round-1 row is deactivated (reversible).`)) return;
+    const {error}=await db.from('students').update({active:false,pickup_order:null,updated_by:'dedupe_round'}).eq('id',data.id);
+    if(error){toast(error.message,'bad');return;}
+    toast(`${data.student_name} is now Round 2 only`,'good');
+    current=null;$('form').style.display='none';$('empty').style.display='block';
+    mapReady=false;searchStudents($('q').value);loadDashboard();
+  };
   loadHistory(data.id);
 }
 
@@ -142,14 +212,24 @@ export async function removeStudent(){
 }
 
 export async function saveStudent(){
-  const p=pin.getLatLng();const newBus=parseInt($('busSel').value,10);
+  const newBus=parseInt($('busSel').value,10);
   const comesBySelf=$('selfTransport').checked;
   const pk=$('pkIn').value?parseInt($('pkIn').value,10):null;const busChanged=newBus!==current.permanent_bus;
-  const patch={latitude:+p.lat.toFixed(6),longitude:+p.lng.toFixed(6),bus_no:newBus,
+  const patch={bus_no:newBus,
     parent_name:$('parIn').value.trim()||null,phone:$('phIn').value.trim()||null,
     address_note:$('noteIn').value.trim()||null,
     uses_transport:!comesBySelf,
     pickup_order: comesBySelf ? null : (busChanged && $('pkIn').value===String(current.pickup_order??'') ? null : pk)};
+  // Coordinates go into the patch ONLY when the pin was actually moved off the permanent
+  // home. Editing a phone number must never re-write the address — for a student on a
+  // temporary address that would make the temp coords permanent, and for a student with
+  // no coordinates there is no pin to read at all.
+  if(pin){
+    const p=pin.getLatLng();
+    const moved = pinHome.lat==null ||
+      Math.abs(p.lat-pinHome.lat)>1e-6 || Math.abs(p.lng-pinHome.lon)>1e-6;
+    if(moved){patch.latitude=+p.lat.toFixed(6);patch.longitude=+p.lng.toFixed(6);}
+  }
   const {error}=await db.from('students').update(patch).eq('id',current.id);
   if(error){toast(error.message.includes('uniq_bus_pickup')?`Pickup position ${pk} is already used on bus ${newBus}`:error.message,'bad');return;}
   toast(comesBySelf?'Saved — student removed from school transport':('Saved'+(busChanged&&patch.pickup_order===null?' — set a pickup order on the Pickup tab':'')),'good');
