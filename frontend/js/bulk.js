@@ -2,6 +2,25 @@
 // Functions access legacy runtime state through the global bridge in app.js.
 
 export function renderBulk(){
+  // Round 2 children live in students_round2; this tool writes to `students`, so in Round 2
+  // it would match nothing and cheerfully report "Moved 0". Say so instead.
+  if(globalThis.tdRound===2){
+    $('bulkBody').innerHTML=`<h2 style="margin:0 0 12px">Bulk operations</h2>
+      <div class="databanner warn" style="max-width:680px">
+        <span><b>Bulk operations are Round&nbsp;1 only.</b> Round&nbsp;2 children are held in their own
+        table, and the impact analysis is built on the Round-1 routes. Switch to Round&nbsp;1 in the
+        header, or move a Round-2 child from their profile on the Students tab.</span></div>`;
+    return;
+  }
+  // An empty fleet list means the bus query failed at sign-in; without this the picker
+  // renders with zero options and the chosen bus parses as NaN.
+  if(!Array.isArray(buses) || !buses.length){
+    $('bulkBody').innerHTML=`<h2 style="margin:0 0 12px">Bulk operations</h2>
+      <div class="databanner bad" style="max-width:680px">
+        <span><b>The bus list did not load.</b> Every bus picker would be empty, so moving students
+        is disabled. Reload the page and sign in again.</span></div>`;
+    return;
+  }
   const opts=buses.map(b=>`<option value="${b.bus_id}">Bus ${b.bus_id} (${b.capacity} seats)</option>`).join('');
   $('bulkBody').innerHTML=`<h2 style="margin:0 0 12px">Bulk operations</h2>
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:16px;max-width:680px">
@@ -62,12 +81,27 @@ export function renderBulk(){
   $('mvApply').onclick=async()=>{
     const srs=JSON.parse($('mvApply').dataset.srs||'[]'), to=parseInt($('mvApply').dataset.to,10);
     if(!srs.length)return;
+    if(!Number.isFinite(to)){toast('Pick a bus first','bad');return;}
     if(!confirm(`Permanently move ${srs.length} student(s) to Bus ${to}? Their pickup order will be reset.`))return;
-    const {error,count}=await db.from('students').update({bus_no:to,pickup_order:null,updated_by:'bulk_move'})
-      .in('sr_no',srs).select('sr_no',{count:'exact'});
+    // .eq('active',true) — without it a student who has left the school is silently moved
+    // back onto a live roster. .select() returns the rows actually written, which is the
+    // only trustworthy count: a mistyped SR matches nothing and reports no error at all.
+    const {data,error}=await db.from('students')
+      .update({bus_no:to,pickup_order:null,updated_by:'bulk_move'})
+      .in('sr_no',srs).eq('active',true).select('sr_no,name');
     if(error){toast(error.message,'bad');return;}
-    toast(`Moved ${count} student(s) to Bus ${to}`,'good');
-    $('mvOut').innerHTML=`<div class="note" style="color:var(--good)">Done — ${count} student(s) now on Bus ${to}. Set their pickup positions on the Pickup tab.</div>`;
+    const moved=(data||[]).map(r=>String(r.sr_no));
+    const missed=srs.filter(x=>!moved.includes(String(x)));
+    if(!moved.length){
+      toast('Nothing moved — no active student matched those SR numbers','bad');
+      $('mvOut').innerHTML=`<div class="databanner bad"><span><b>Nothing was moved.</b> None of these
+        SR numbers matched an active Round-1 student: ${esc(srs.join(', '))}</span></div>`;
+      return;
+    }
+    toast(`Moved ${moved.length} student(s) to Bus ${to}`,'good');
+    $('mvOut').innerHTML=`<div class="databanner ${missed.length?'warn':''}" style="${missed.length?'':'background:var(--ok-bg);border:1px solid #b7dfc9;color:#14532d'}">
+      <span><b>Moved ${moved.length} of ${srs.length}</b> to Bus ${to}. Set their pickup positions on the Pickup order tab.
+      ${missed.length?`<br><b>Not moved (${missed.length}):</b> ${esc(missed.join(', '))} — not an active Round-1 SR.`:''}</span></div>`;
     $('mvApply').disabled=true;mapReady=false;loadDashboard();
   };
 }
