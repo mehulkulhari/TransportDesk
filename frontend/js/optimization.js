@@ -73,7 +73,7 @@ export async function renderOptimization(){
 }
 
 async function loadOptimizationData(){
-  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal, cluster, fuelShares] = await Promise.all([
+  const [master, studentFix, cost, overlap, depot, merge, backtrack, fuel, meta, rebalSum, rebalMoves, statuses, deadrun, fleetAssign, fleetSum, consSum, consPlan, consBus, reseq, abnormal, cluster, fuelShares, startChange] = await Promise.all([
     db.from('opt_master').select('*').single(),
     db.from('opt_student_fix').select('*').order('net_annual_fuel',{ascending:false}),
     db.from('opt_student_cost').select('*').order('annual_fuel_cost',{ascending:false}),
@@ -95,7 +95,9 @@ async function loadOptimizationData(){
     db.from('opt_resequence').select('*').order('save_rs',{ascending:false}),
     db.from('opt_abnormal').select('*').order('net_fuel',{ascending:false}),
     db.from('opt_cluster').select('*').order('net_fuel',{ascending:false}),
-    db.from('opt_student_fuel').select('fuel_share')
+    db.from('opt_student_fuel').select('fuel_share'),
+    // old vs new start points, so a relocation can be judged rather than assumed
+    db.from('report_start_change').select('*').order('bus_id')
   ]);
 
   if(master.error) throw new Error('Analysis not calculated yet — click "Recalculate now".');
@@ -249,6 +251,7 @@ async function loadOptimizationData(){
         {label:'Status',cell:r=>statusCell('depot_swap', r.bus_a+'-'+r.bus_b)}
       ], depot.data||[], 'depot_swaps')
     ) +
+    startChangeSection(startChange.data||[]) +
     section(
       'Start points — buses running empty before the first child',
       `Each bus drives empty from its start point to its first student ("dead run"). These start too far out — moving the start point (or the depot) closer recovers the fuel shown. Click <b>Map</b> to see the bus's start and route.`,
@@ -459,6 +462,53 @@ function section(title, note, tableHtml){
   return `<div style="margin-bottom:22px">
     <h3 style="margin:14px 0 4px;font-size:15px">${title}</h3>
     <div class="note" style="margin-bottom:6px">${note}</div>${tableHtml}</div>`;
+}
+
+// Start points that have been MOVED: old vs new dead run, side by side.
+// The old point is kept in buses.prev_start_* so a relocation can be judged after the fact
+// rather than taken on faith — a move that looked sensible can still cost money.
+export function startChangeSection(rows){
+  const moved = rows.filter(r=>r.start_moved);
+  if(!moved.length) return '';
+  const oldTot = moved.reduce((a,r)=>a+Number(r.old_annual_fuel||0),0);
+  const newTot = moved.reduce((a,r)=>a+Number(r.new_annual_fuel||0),0);
+  const net = oldTot-newTot;
+  const better = moved.filter(r=>Number(r.old_annual_fuel)>Number(r.new_annual_fuel));
+  const worse  = moved.filter(r=>Number(r.new_annual_fuel)>Number(r.old_annual_fuel))
+                      .sort((a,b)=>(b.new_annual_fuel-b.old_annual_fuel)-(a.new_annual_fuel-a.old_annual_fuel));
+  const body = moved
+    .slice().sort((a,b)=>(b.old_annual_fuel-b.new_annual_fuel)-(a.old_annual_fuel-a.new_annual_fuel))
+    .map(r=>{
+      const d = Number(r.old_annual_fuel)-Number(r.new_annual_fuel);
+      const good = d>=0;
+      return `<tr${good?'':' style="background:var(--stop-bg)"'}>
+        <td><b>${r.bus_id}</b></td>
+        <td>${esc(r.first_student||'—')}</td>
+        <td>${r.old_start_from==='school'?'<span class="note">school</span>':'depot'}</td>
+        <td>${n1(r.old_dead_km)} km</td>
+        <td><b>${n1(r.new_dead_km)} km</b></td>
+        <td>${rupee(r.old_annual_fuel)}</td>
+        <td><b>${rupee(r.new_annual_fuel)}</b></td>
+        <td style="font-weight:700;color:${good?'var(--ok)':'var(--stop)'}">${good?'−':'+'}${rupee(Math.abs(d))}${good?'':' worse'}</td>
+        <td>${mapBtn('', r.bus_id)}</td></tr>`;
+    }).join('');
+  return `<div style="margin-bottom:22px">
+    <h3 style="margin:14px 0 4px;font-size:15px">🚩 Start points moved — old vs new cost</h3>
+    <div class="note" style="margin-bottom:6px">
+      The ${moved.length} buses whose start point was relocated, each measured against the point it
+      replaced. Dead run is the empty distance from the start point to that bus's first child,
+      priced with the bus's own mileage. <b>${better.length} improved${worse.length?`, ${worse.length} got worse`:''}.</b>
+      Net across all ${moved.length}: <b style="color:${net>=0?'var(--ok)':'var(--stop)'}">${net>=0?'saves ':'costs '}${rupee(Math.abs(net))}/yr</b>
+      (${rupee(oldTot)} → ${rupee(newTot)}).
+    </div>
+    ${worse.length?`<div class="databanner bad" style="margin-bottom:8px"><span>
+      <b>Worth a second look:</b> ${worse.map(r=>`bus ${r.bus_id} (+${rupee(r.new_annual_fuel-r.old_annual_fuel)}/yr)`).join(', ')}
+      — the new point sits further from the first child than the old one did.</span></div>`:''}
+    <div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:auto">
+      <table><thead><tr>
+        <th>Bus</th><th>First child</th><th>Old start</th><th>Old dead run</th><th>New dead run</th>
+        <th>Old fuel/yr</th><th>New fuel/yr</th><th>Change</th><th></th>
+      </tr></thead><tbody>${body}</tbody></table></div></div>`;
 }
 
 // large-scale fleet consolidation plan (student reshuffle to free buses)
