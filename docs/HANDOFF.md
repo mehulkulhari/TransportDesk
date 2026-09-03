@@ -128,7 +128,13 @@ Open items, roughly in priority order:
 7. **Three refresh pipelines feed tables nothing reads** — `opt_overcap`, `opt_stop_merge`
    and `opt_village_stops`. Each is a built-but-unwired feature: connect it to the UI or
    remove the table and its function together. See `sql/ARCHIVED.md`.
-8. Live GPS integration and an attendance module were both scoped but not started.
+8. **Six vehicle registrations no longer match the August GPS tracks.** Buses 10, 27 and 40
+   hold each other's vehicles in a three-way rotation, and 58/59 have swapped, with one
+   vehicle gone from the fleet and one new one arrived. Mileage is a property of the
+   vehicle, not the route, so `buses.mileage` for those routes should be re-checked before
+   any cost figure that uses them is quoted again. Compare `bus_details.vehicle_no` against
+   the plate in each KML filename.
+9. Live GPS integration and an attendance module were both scoped but not started.
 
 ## 7. Conventions worth keeping
 

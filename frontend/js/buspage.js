@@ -55,6 +55,13 @@ export async function loadBusPage(bus){
   const d=det||{};
   const stat=(l,v)=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   const fld=(l,k)=>`<div><label>${l}</label><input id="bd_${k}" value="${esc(d[k]||'')}"/></div>`;
+  // Salaries are monthly and maintenance is a yearly figure, so they are labelled as such
+  // rather than silently mixed. Blank stays blank — never coerced to 0.
+  const fldn=(l,k)=>`<div><label>${l}</label><input id="bd_${k}" type="number" min="0" step="1" value="${d[k]??''}"/></div>`;
+  const staffYr=((+d.driver_salary||0)+(+d.conductor_salary||0))*12;
+  const maintYr=+d.maintenance_cost||0;
+  // Vehicle age is derived from the year of manufacture, never stored, so it cannot go stale.
+  const age=d.model_year?(new Date().getFullYear()-d.model_year):null;
   const fuelBy={}; (fuelSh||[]).forEach(f=>fuelBy[f.sr_no]=f);
   // The morning run carries students AND teachers, so the driving order is the two merged:
   // each teacher sits at the point in the student sequence that adds the least distance.
@@ -77,9 +84,18 @@ export async function loadBusPage(bus){
       ${cap.riders>cap.capacity?stat('Over capacity (allowed)',cap.riders-cap.capacity):stat('Seats free',cap.capacity-cap.riders)}
       ${(tchs&&tchs.length)?stat('Morning load (with teachers)',`${cap.riders+tchs.length}/${cap.capacity}`):''}
       ${econ?stat('Road km/trip',econ.road_km_per_trip):''}${econ?stat('Annual fuel',rs(econ.annual_fuel_cost)):''}</div>
-    <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:16px;margin-bottom:16px;max-width:640px">
-      <h3 style="margin:0 0 10px;font-size:15px">Driver, conductor &amp; vehicle</h3>
-      <div class="grid">${fld('Driver name','driver_name')}${fld('Driver phone','driver_phone')}${fld('Conductor name','conductor_name')}${fld('Conductor phone','conductor_phone')}${fld('Vehicle no.','vehicle_no')}${fld('Model','model')}</div>
+    <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;padding:16px;margin-bottom:16px;max-width:760px">
+      <h3 style="margin:0 0 10px;font-size:15px">Vehicle</h3>
+      <div class="grid">${fld('Vehicle no.','vehicle_no')}${fld('Make','company')}${fldn('Year of manufacture','model_year')}
+        <div><label>Age</label><input value="${age!=null?age+(age===1?' year':' years'):'—'}" disabled title="Worked out from the year of manufacture"/></div>
+        ${fld('Route name','route_name')}</div>
+      <h3 style="margin:16px 0 10px;font-size:15px">Driver &amp; conductor</h3>
+      <div class="grid">${fld('Driver name','driver_name')}${fld('Driver phone','driver_phone')}${fldn('Driver salary — monthly','driver_salary')}
+        ${fld('Conductor name','conductor_name')}${fld('Conductor phone','conductor_phone')}${fldn('Conductor salary — monthly','conductor_salary')}</div>
+      <h3 style="margin:16px 0 10px;font-size:15px">Running cost</h3>
+      <div class="grid">${fldn('Maintenance — this year','maintenance_cost')}</div>
+      ${(staffYr||maintYr)?`<div class="note" style="margin-top:10px">Staff <b>${rs(staffYr)}</b>/yr (salaries &times; 12)${maintYr?` + maintenance <b>${rs(maintYr)}</b>/yr`:''}${econ&&econ.annual_fuel_cost?` + fuel <b>${rs(econ.annual_fuel_cost)}</b>/yr`:''} = <b>${rs(staffYr+maintYr+((econ&&+econ.annual_fuel_cost)||0))}</b> a year to run this bus.</div>`:''}
+      ${d.conductor_name?'':'<div class="note" style="margin-top:8px">No conductor recorded on this bus.</div>'}
       <div class="actions"><button class="b-primary" id="bpSave">Save bus details</button><span class="note" id="bpState"></span></div>
     </div>
     ${(tchs&&tchs.length)?`<div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:12px 16px;margin-bottom:16px">
@@ -90,9 +106,19 @@ export async function loadBusPage(bus){
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table><thead><tr><th>#</th><th>Name</th><th>SR / Emp</th><th>Ride to school (along route)</th><th>Ride km</th><th>Fuel share</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${(tchs&&tchs.length)?`<div class="note" style="margin-top:8px">Teachers are placed where they add the least distance to the existing student route. The afternoon run drops students only.</div>`:''}`;
   $('bpSave').onclick=async()=>{
-    const rec={bus_id:bus};['driver_name','driver_phone','conductor_name','conductor_phone','vehicle_no','model'].forEach(k=>rec[k]=$('bd_'+k).value.trim()||null);
+    const rec={bus_id:bus};
+    ['driver_name','driver_phone','conductor_name','conductor_phone','vehicle_no','company','route_name']
+      .forEach(k=>rec[k]=$('bd_'+k).value.trim()||null);
+    // A blank number must stay blank. Sending 0 would claim the bus costs nothing to run.
+    ['model_year','driver_salary','conductor_salary','maintenance_cost'].forEach(k=>{
+      const v=$('bd_'+k).value.trim(); rec[k]=v===''?null:Number(v);});
+    if(rec.model_year!=null&&(rec.model_year<1990||rec.model_year>new Date().getFullYear()+1)){
+      toast('Year of manufacture looks wrong','bad');return;}
+    if(['driver_salary','conductor_salary','maintenance_cost'].some(k=>rec[k]!=null&&rec[k]<0)){
+      toast('Costs cannot be negative','bad');return;}
     const {error}=await db.from('bus_details').upsert(rec);
-    if(error){toast(error.message,'bad');return;}toast('Bus details saved','good');};
+    if(error){toast(error.message,'bad');return;}
+    toast('Bus details saved','good'); loadBusPage(bus);};
 }
 
 Object.assign(globalThis, { renderBusPage, loadBusPage });

@@ -103,7 +103,29 @@ FROM students WHERE active;
 SELECT max(computed_at) FROM bus_route_geo;
 ```
 
-## 3. Round 2 seat utilisation
+## 3. Bus details: staff, vehicle and running cost
+
+The Bus page carries the vehicle registration, make, year of manufacture, route name, the
+driver and conductor with their **monthly** salaries, and the year's maintenance spend. It
+totals staff, maintenance and fuel into what the bus costs to run in a year.
+
+Two conventions matter:
+
+- **Vehicle age is derived from the year of manufacture, never stored.** Storing an age
+  guarantees it is wrong within a year.
+- **A blank cost stays blank; it is never saved as 0.** Zero would claim the bus costs
+  nothing to run, which is different from not knowing.
+
+21 buses have no conductor. In the source spreadsheet that was recorded by typing the
+vehicle type into the conductor column ("Traveller", "CRUISER", "Mini Bus", "ECO") with a
+salary of 0; on load those were converted to a genuine blank. Keep them blank.
+
+Non-fuel cost is not small. Across the fleet the recorded figures come to about
+**₹95 lakh a year in maintenance** and **₹11.1 lakh a month in driver and conductor pay** —
+comparable to the whole diesel bill. Any proposal to take a bus off the road should be
+costed on all three, not on diesel alone.
+
+## 4. Round 2 seat utilisation
 
 Round 2 runs at roughly **59% seat fill** — about 325 children in 548 seats across 25 buses.
 That is the largest remaining efficiency question in the fleet, and unlike Round 1 it is not
@@ -122,7 +144,7 @@ Withdrawing vehicles needs management approval, so produce the measured net savi
 route fuel **minus** the extra distance the receiving buses will drive — before the meeting,
 not after.
 
-## 4. Keeping figures defensible
+## 5. Keeping figures defensible
 
 The cost figures feed an incentive plan, so they get challenged. Three habits make that
 survivable:
