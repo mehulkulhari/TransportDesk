@@ -2,7 +2,8 @@
 
 Everything a developer needs to take this over. Read this first, then `ARCHITECTURE.md`
 (how the system is built and why), `DOMAIN_RULES.md` (business rules that are not
-guessable from the code) and `ANALYSIS_METHODS.md` (how the figures are produced).
+guessable from the code), `ANALYSIS_METHODS.md` (how the figures are produced) and
+`OPERATIONS.md` (how the data must be kept, and the maintenance routine).
 
 **This repository is public. It must never contain student names, addresses, coordinates,
 or GPS tracks.** Everything identifying is handed over separately — see *What you receive
@@ -65,10 +66,12 @@ frontend/          the app. index.html + js/ ES modules, no build step
   js/maps.js, mapfocus.js, teacherroute.js  Leaflet maps and route drawing
 sql/               tables, views, functions, policies, reports — the source of truth
   ARCHIVED.md      what was moved out of the live schema on 2026-09-03, and why
-docs/OPERATIONS.md the data-entry rule and the maintenance routine
 supabase/          config and migrations
 python/            coordinate and routing helpers
-docs/              this file, ARCHITECTURE.md, DOMAIN_RULES.md, ANALYSIS_METHODS.md
+docs/              this file, plus ARCHITECTURE.md (how it is built and why),
+                   DOMAIN_RULES.md (rules not in the code), ANALYSIS_METHODS.md
+                   (how figures are measured), OPERATIONS.md (data-entry rule
+                   and the maintenance routine)
 app/               older copy of the frontend; frontend/ is the live one
 ```
 
@@ -104,7 +107,10 @@ reports, bulk transfer, GPS mapping, and the dead-run and savings analysis.
 
 Open items, roughly in priority order:
 
-1. **Buses 10 and 27 are over capacity** (16 in 14, and 17 in 14). Needs placements.
+1. **Four buses are over their effective capacity** — bus 1 (56/53), bus 10 (16/14), bus 14
+   (15/14) and bus 27 (17/14). Three are small buses, and the small tier is oversubscribed
+   fleet-wide, so this resolves by adding a small vehicle or accepting the overload — not by
+   re-routing. Check with `SELECT * FROM bus_capacity WHERE riders > effective_capacity`.
 2. **One student move from bus 58 to bus 35 is not recorded in the database** — the child
    still shows on bus 58, while the savings report already counts the move. Record it or
    the two disagree. The name is in the analysis bundle's savings report.
