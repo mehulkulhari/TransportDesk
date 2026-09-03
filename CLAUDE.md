@@ -3,8 +3,8 @@
 Transport management for a 59-bus school fleet: ~1,653 Round-1 students, ~325 Round-2
 children, plus teachers riding the morning runs.
 
-Read `docs/HANDOFF.md`, `docs/DOMAIN_RULES.md` and `docs/ANALYSIS_METHODS.md` before making
-changes. They record rules and methods that are not derivable from the code.
+Read `docs/HANDOFF.md`, `docs/ARCHITECTURE.md`, `docs/DOMAIN_RULES.md` and
+`docs/ANALYSIS_METHODS.md` before making changes. They record rules and methods that are not derivable from the code.
 
 ## Hard constraints
 

@@ -36,5 +36,6 @@ GPS mapping, and the dead-run and savings analysis.
 ## Reference
 
 - `docs/HANDOFF.md` — start here: setup, layout, traps, what to request separately
+- `docs/ARCHITECTURE.md` — how the system is built, and why each choice was made
 - `docs/DOMAIN_RULES.md` — rules not derivable from the code
 - `docs/ANALYSIS_METHODS.md` — how the distance and cost figures are produced

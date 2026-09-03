@@ -1,8 +1,8 @@
 # TransportDesk — Developer Handoff
 
-Everything a developer needs to take this over. Read this first, then `DOMAIN_RULES.md`
-(the business rules that are not guessable from the code) and `ANALYSIS_METHODS.md`
-(how the cost and savings figures are produced).
+Everything a developer needs to take this over. Read this first, then `ARCHITECTURE.md`
+(how the system is built and why), `DOMAIN_RULES.md` (business rules that are not
+guessable from the code) and `ANALYSIS_METHODS.md` (how the figures are produced).
 
 **This repository is public. It must never contain student names, addresses, coordinates,
 or GPS tracks.** Everything identifying is handed over separately — see *What you receive
@@ -59,14 +59,14 @@ the referrer restriction rather than around it.
 frontend/          the app. index.html + js/ ES modules, no build step
   js/bootstrap.js  loads fleet, school and colours, then boots every page. Start here.
   js/supabase.js   the single Supabase client
-  js/router.js     page switching
+  js/app.js        view switching, shared globals, search, CSV import, reports
   js/rounds.js     Round 1 / Round 2 switching — read DOMAIN_RULES.md before touching
   js/optimization.js / optimization_r2.js   cost analysis pages, one per round
   js/maps.js, mapfocus.js, teacherroute.js  Leaflet maps and route drawing
 sql/               tables, views, functions, policies, reports — the source of truth
 supabase/          config and migrations
 python/            coordinate and routing helpers
-docs/              this file, DOMAIN_RULES.md, ANALYSIS_METHODS.md
+docs/              this file, ARCHITECTURE.md, DOMAIN_RULES.md, ANALYSIS_METHODS.md
 app/               older copy of the frontend; frontend/ is the live one
 ```
 
@@ -114,7 +114,10 @@ Open items, roughly in priority order:
 5. **Tyre pressures**: the fleet runs under-inflated, worth an estimated ₹2.5–2.9 lakh a
    year in diesel plus tyre life. Blocked on manufacturer placard pressures — the targets
    used so far were inferred, and should not drive a fleet-wide re-inflation.
-6. Live GPS integration and an attendance module were both scoped but not started.
+6. **`sql/policies.sql` contains no `CREATE POLICY` statements** — RLS is enabled on every
+   table but the live policies were applied directly and are not reproducible from the
+   repository. Dump them before any migration work.
+7. Live GPS integration and an attendance module were both scoped but not started.
 
 ## 7. Conventions worth keeping
 
