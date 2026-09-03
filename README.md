@@ -25,6 +25,7 @@ No build step, no bundler. The backend is Supabase; there is no server of our ow
 
 Read [docs/HANDOFF.md](docs/HANDOFF.md) first, then
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
+[docs/OPERATIONS.md](docs/OPERATIONS.md),
 [docs/DOMAIN_RULES.md](docs/DOMAIN_RULES.md) and
 [docs/ANALYSIS_METHODS.md](docs/ANALYSIS_METHODS.md).
 

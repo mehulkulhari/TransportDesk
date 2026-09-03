@@ -65,6 +65,7 @@ frontend/          the app. index.html + js/ ES modules, no build step
   js/maps.js, mapfocus.js, teacherroute.js  Leaflet maps and route drawing
 sql/               tables, views, functions, policies, reports — the source of truth
   ARCHIVED.md      what was moved out of the live schema on 2026-09-03, and why
+docs/OPERATIONS.md the data-entry rule and the maintenance routine
 supabase/          config and migrations
 python/            coordinate and routing helpers
 docs/              this file, ARCHITECTURE.md, DOMAIN_RULES.md, ANALYSIS_METHODS.md
