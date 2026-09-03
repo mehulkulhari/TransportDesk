@@ -8,3 +8,9 @@ __pycache__/
 *.log
 dist/
 build/
+
+# Analysis workstream: contains student names and home coordinates.
+# Shared privately with developers, never committed. See docs/HANDOFF.md.
+analysis/
+*-analysis-handover/
+scratchpad/

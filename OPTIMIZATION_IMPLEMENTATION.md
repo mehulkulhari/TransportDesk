@@ -1,4 +1,16 @@
-# Optimization Tab Implementation Summary
+> ## ⚠️ SUPERSEDED — DO NOT TRUST THE NUMBERS OR TABLE MAPPINGS BELOW
+> This document describes the **first-generation detector design**, which was rebuilt after
+> it was found to fabricate fuel savings (greedy-NN with/without recompute → impossible
+> negative insert-km; a centroid round-trip formula that inflated backtrackers to ₹2.25 crore).
+> The tables/functions it lists — `opt_misassigned`, `opt_route_split`, `opt_merge` (old shape),
+> `refresh_optimization`, `simulate_moves` returning the old shape — are **retired**.
+>
+> The production engine now uses MARGINAL CHEAPEST-INSERTION helpers
+> (`insert_cost_m`, `ordered_route_m`, `own_detour_m`, `bus_factor`, `route_km_greedy`) and
+> the `opt_*` snapshot tables listed in `SETUP_COMPLETE.md`'s superseded banner. Verify any
+> figure against the live DB — the brief (HANDOFF) is authoritative, this file is not.
+
+# Optimization Tab Implementation Summary (SEE SUPERSEDED BANNER ABOVE)
 
 ## What Was Done
 

@@ -1,4 +1,23 @@
-# TransportDesk Optimization Tab - Setup Complete ✓
+> ## ⚠️ SUPERSEDED — DO NOT TRUST THE NUMBERS BELOW
+> This file describes an **older detector design** that was rebuilt because it produced
+> fabricated/impossible savings (negative insert-km, a ₹2.25-crore backtracker figure, etc.).
+> The retired tables/functions referenced here — `opt_misassigned`, `opt_route_split`,
+> `opt_merge` (old shape), `refresh_optimization` — **no longer drive the app**.
+>
+> **Current reality (verified 2026-08-13 against the live DB):**
+> - The Optimization tab reads `opt_master`, `opt_student_fix`, `opt_student_cost`,
+>   `opt_depot_swap`, `opt_backtrackers`, `opt_fleet_assign*`, `opt_consolidation_*`,
+>   `opt_rebalance_*`, `report_deadrun_full`, `opt_meta`, `opt_task_status`.
+> - Cost math is MARGINAL CHEAPEST-INSERTION (`insert_cost_m`, `ordered_route_m`,
+>   `own_detour_m`, `bus_factor`, `route_km_greedy`) — never greedy-NN with/without.
+> - Recalc chain: `refresh_student_fix` → `recalc_light` → `recalc_merge` → `recalc_master`
+>   (plus server-side `refresh_insertion`, `refresh_rebalance`, `refresh_fleet_assign`).
+> - Live headline figures: fleet ≈ ₹99.33 L/yr; vehicle swaps 18 × ₹9.44 L/yr (all positive);
+>   realistic door-to-door consolidation frees 1 bus (₹1.28 L fuel, max +9 min, ≤333 m walk);
+>   8 feasible student moves (≥₹5,488 each); backtrackers honestly ≈ ₹3.84 L.
+> Keep this file only as a historical "what not to do" reference.
+
+# TransportDesk Optimization Tab - Setup Complete ✓ (SEE SUPERSEDED BANNER ABOVE)
 
 ## What's Working Now
 
