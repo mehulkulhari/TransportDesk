@@ -134,6 +134,12 @@ with latitude/longitude so PostGIS indexes stay valid. Coordinates are constrain
 both-present-or-both-null and within Rajasthan's bounding box, because `+null` evaluating to
 `0` once wrote children to the Atlantic.
 
+**The live schema holds only what is used.** On 2026-09-03, 21 stale tables — dated
+backups, one-time CSV import staging, legacy `stg_*` scratch tables and superseded analysis
+snapshots — were moved to an `archive` schema, which PostgREST does not expose. Nothing was
+dropped; `sql/ARCHIVED.md` records what moved, the four tests each had to fail to qualify,
+and which look-unused-but-load-bearing objects were deliberately kept.
+
 **Staging tables are deliberate.** `stg_*` and `import_*` receive raw CSV uploads before
 anything touches live rows. *Why:* imports come from spreadsheets maintained by hand, and
 arrive with duplicates, blank coordinates and shifted columns. Loading and validating

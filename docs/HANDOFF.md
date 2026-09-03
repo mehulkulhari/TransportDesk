@@ -64,6 +64,7 @@ frontend/          the app. index.html + js/ ES modules, no build step
   js/optimization.js / optimization_r2.js   cost analysis pages, one per round
   js/maps.js, mapfocus.js, teacherroute.js  Leaflet maps and route drawing
 sql/               tables, views, functions, policies, reports — the source of truth
+  ARCHIVED.md      what was moved out of the live schema on 2026-09-03, and why
 supabase/          config and migrations
 python/            coordinate and routing helpers
 docs/              this file, ARCHITECTURE.md, DOMAIN_RULES.md, ANALYSIS_METHODS.md
@@ -117,7 +118,10 @@ Open items, roughly in priority order:
 6. **`sql/policies.sql` contains no `CREATE POLICY` statements** — RLS is enabled on every
    table but the live policies were applied directly and are not reproducible from the
    repository. Dump them before any migration work.
-7. Live GPS integration and an attendance module were both scoped but not started.
+7. **Three refresh pipelines feed tables nothing reads** — `opt_overcap`, `opt_stop_merge`
+   and `opt_village_stops`. Each is a built-but-unwired feature: connect it to the UI or
+   remove the table and its function together. See `sql/ARCHIVED.md`.
+8. Live GPS integration and an attendance module were both scoped but not started.
 
 ## 7. Conventions worth keeping
 
