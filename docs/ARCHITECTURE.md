@@ -140,6 +140,12 @@ snapshots — were moved to an `archive` schema, which PostgREST does not expose
 dropped; `sql/ARCHIVED.md` records what moved, the four tests each had to fail to qualify,
 and which look-unused-but-load-bearing objects were deliberately kept.
 
+**Logs belong to vehicles, not routes.** The Fleet module's tables key every log on the
+physical vehicle and record the route it covered separately, because vehicles move between
+routes and spares have none. Driver and conductor history is kept as dated tenures in
+`staff_assignments`, so changing who drives a bus never overwrites the record. See
+`docs/FLEET.md`.
+
 **Staging tables are deliberate.** `stg_*` and `import_*` receive raw CSV uploads before
 anything touches live rows. *Why:* imports come from spreadsheets maintained by hand, and
 arrive with duplicates, blank coordinates and shifted columns. Loading and validating
@@ -185,6 +191,9 @@ no live integration — it is a known gap, listed in `PROJECT_STATE.md`.
 | `globalThis` for shared state | honest boundary after splitting one big file | concurrent views, or a second page |
 | Soft delete plus history trigger | the audit trail is analysis data | never |
 | Directions cached, key referrer-locked | zero ongoing cost, safe in a public repo | never — the restriction is the security control |
+| Fleet logs keyed by vehicle, not route | vehicles rotate between routes; spares have none | never |
+| Staff tenure as dated rows | changing a driver must not erase who drove before | never |
+| No delete permission on fleet tables | a wrong entry is hidden, not erased, so history survives | never |
 | Public repository | it is a portfolio-visible project | if it must hold operational data |
 
 ## 8. The public-repository constraint

@@ -11,6 +11,7 @@ import "./temporary.js";
 import "./routes.js";
 import "./optimization.js";
 import "./maintenance.js";
+import "./fleet.js";
 import "./teachers.js";
 import "./mapfocus.js";
 import "./planner.js";
@@ -167,7 +168,7 @@ document.querySelectorAll('nav button').forEach(btn=>btn.onclick=()=>{
   if(v==='map')openRouteMap();
   if(v==='students')setTimeout(()=>map&&map.invalidateSize(),60);
   if(v==='opt')renderOptimization();
-  if(v==='maint')renderMaintenance();
+  if(v==='fleet')renderFleet();
   if(v==='teachers')renderTeachers();
   if(v==='planner')renderPlanner();
   if(v==='bulk')renderBulk();
@@ -474,8 +475,7 @@ globalThis.ttimer = undefined;$('tq').addEventListener('input',e=>{clearTimeout(
 /* ============ CSV UPLOAD ============ */
 globalThis.CSV_HINTS = {
   profiles:'Expected columns (header names are matched loosely): SR No, Student Name, Father\u2019s Name, Mother\u2019s Name, Date of Birth, Father\u2019s Mobile No, Mother\u2019s Mobile No, Class, Section, Gender, Home Address, Date of Admission, Previous School Name. Dates as DD-MM-YYYY. Rows are matched to students by SR No and stored as their profile.',
-  pickup:'Expected columns: sr_no, seating_order (or pickup_order), bus_no. Each student\u2019s pickup position on their bus is set from this file.',
-  busdetails:'Expected columns: bus_id, driver_name, driver_phone, conductor_name, conductor_phone, vehicle_no, model.'
+  pickup:'Expected columns: sr_no, seating_order (or pickup_order), bus_no. Each student\u2019s pickup position on their bus is set from this file.'
 };
                                                                                           
                                                                               

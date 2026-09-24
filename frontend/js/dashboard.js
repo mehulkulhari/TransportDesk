@@ -2,6 +2,16 @@ import { db } from "./supabase.js";
 import { toast } from "./utils.js";
 import { loadBusPage } from "./buspage.js";
 import { loadPickup } from "./pickup.js";
+import { alertGroups, bindAlertGroups, openFleet } from "./fleet.js";
+
+/** Fleet alerts belong to vehicles, not to a round, so both dashboards show them. */
+async function fleetSection(){
+  const {data,error}=await db.from('fleet_alerts').select('*');
+  if(error) return '';
+  const n=(data||[]).filter(a=>a.severity>=2).length;
+  return `<h2 style="margin:22px 0 10px">Fleet <span class="note">(${n} need attention · tyres, documents, service, fuel, complaints)</span></h2>
+    <div id="dashFleet">${alertGroups(data||[],{max:15})}</div>`;
+}
 
 function goFix(kind, subject){
   const busM = /bus\s*(\d+)/i.exec(subject||'');
@@ -18,10 +28,11 @@ function goFix(kind, subject){
 
 export async function loadDashboard(){
   if(globalThis.tdRound===2) return loadDashboardR2();
-  const [{data:s},{data:al},{data:dr}]=await Promise.all([
+  const [{data:s},{data:al},{data:dr},fleet]=await Promise.all([
     db.from('dashboard_stats').select('*').single(),
     db.from('alerts').select('*').order('severity',{ascending:false}),
-    db.from('report_deadrun_summary').select('*').single()]);
+    db.from('report_deadrun_summary').select('*').single(),
+    fleetSection()]);
   if(!s){$('dashBody').innerHTML='<div class="hint">Could not load stats.</div>';return;}
   const card=(n,l,warn)=>`<div class="stat ${warn&&+s[n]>0?'warn':''}"><b>${Number(s[n]).toLocaleString('en-IN')}</b><span>${l}</span></div>`;
   const drCard = dr?`<div class="stat warn"><b>₹${Number(dr.total_annual_dead_fuel).toLocaleString('en-IN')}</b><span>Dead-run fuel / yr · ${dr.buses_far} buses start >2 km out</span></div>`:'';
@@ -36,17 +47,20 @@ export async function loadDashboard(){
       ${card('overloaded_buses','Overloaded buses',true)}${card('missing_pickup_order','Missing pickup order',true)}
       ${(+s.self_transport>0)?`<div class="stat"><b>${Number(s.self_transport).toLocaleString('en-IN')}</b><span>Come by self</span></div>`:''}
       ${drCard}</div>
-    <h2 style="margin:22px 0 10px">Alerts <span class="note">(${(al||[]).length})</span></h2>
-    ${alertBlock}`;
+    <h2 style="margin:22px 0 10px">Students <span class="note">(${(al||[]).length})</span></h2>
+    ${alertBlock}
+    ${fleet}`;
+  if($('dashFleet')) bindAlertGroups($('dashFleet'), openFleet);
   document.querySelectorAll('#dashBody .alert[data-i]').forEach(el=>{
     el.onclick=()=>{ const a=(al||[])[Number(el.dataset.i)]; if(a) goFix(a.kind, a.subject); };
   });
 }
 
 async function loadDashboardR2(){
-  const [{data:st},{data:cap}] = await Promise.all([
+  const [{data:st},{data:cap},fleet] = await Promise.all([
     db.from('students_round2').select('sr_no,name,class,bus_no,latitude,longitude').eq('active',true),
-    db.from('bus_capacity').select('bus_id,capacity')]);
+    db.from('bus_capacity').select('bus_id,capacity'),
+    fleetSection()]);
   const rows=st||[]; const capBy={}; (cap||[]).forEach(c=>capBy[c.bus_id]=c.capacity);
   const byBus={}; rows.forEach(r=>{ (byBus[r.bus_no]=byBus[r.bus_no]||[]).push(r); });
   const buses=Object.keys(byBus).map(Number).sort((a,b)=>a-b);
@@ -66,7 +80,9 @@ async function loadDashboardR2(){
     <h2 style="margin:22px 0 10px">Children per bus <span class="note">(same physical buses as Round 1 — capacity shown is the vehicle's)</span></h2>
     <div style="background:var(--panel);border:1px solid var(--edge);border-radius:8px;overflow:auto">
       <table><thead><tr><th>Bus</th><th>Children</th><th>Seats</th><th>Classes</th></tr></thead><tbody>${busRows}</tbody></table></div>
-    <div class="note" style="margin-top:14px">Alerts and Optimization currently analyse <b>Round 1</b>. Switch back with the toggle in the header.</div>`;
+    <div class="note" style="margin-top:14px">Student alerts and Optimization analyse <b>Round 1</b>. Switch back with the toggle in the header.</div>
+    ${fleet}`;
+  if($('dashFleet')) bindAlertGroups($('dashFleet'), openFleet);
 }
 
 // The nav handler in app.js calls loadDashboard() as a global; expose it.

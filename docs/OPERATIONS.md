@@ -72,7 +72,10 @@ Ordered by how quickly the thing being checked turns into a real problem.
 | Weekly | Buses over effective capacity | Dashboard alerts |
 | Weekly | Missing coordinates; self-transport children still showing a bus | Dashboard alerts |
 | Weekly | Children active in both rounds at once | Students, both rounds |
-| Fortnightly | Tyre pressure — **all four tyres** recorded per bus | paper round, then Maintenance |
+| Daily | Odometer reading for every bus on reaching school; give a reason for any flagged day | Fleet → Daily km |
+| Every fill | Litres, price, bill amount and odometer; explain any flagged mileage | Fleet → Fuel |
+| Fortnightly | Tyre pressure — **all four tyres** recorded per bus | Fleet → Tyres → Enter readings |
+| When renewed | Upload the new permit, fitness, insurance, PUC or licence | Fleet → Documents |
 | Monthly | Recompute route geometry and the optimisation snapshot | Optimization page |
 | Monthly | Fuel logged against each bus's recorded mileage; investigate drift | Reports · Fuel |
 | Termly | Fresh GPS download for every bus; re-measure empty running | KVL export |
@@ -103,11 +106,15 @@ FROM students WHERE active;
 SELECT max(computed_at) FROM bus_route_geo;
 ```
 
-## 3. Bus details: staff, vehicle and running cost
+## 3. Vehicles, staff and running cost
 
-The Bus page carries the vehicle registration, make, year of manufacture, route name, the
-driver and conductor with their **monthly** salaries, and the year's maintenance spend. It
-totals staff, maintenance and fuel into what the bus costs to run in a year.
+Vehicle, driver and conductor details now live in the **Fleet** module (`docs/FLEET.md`),
+not on the route row. The Bus page still shows them and lets you correct a phone number,
+salary, make or year — but **who drives a bus is changed only on Fleet → Staff**, which
+ends one tenure and starts the next. Typing a new name over an old one would erase the
+record of who drove that bus when.
+
+The Bus page totals staff, maintenance and fuel into what the bus costs to run in a year.
 
 Two conventions matter:
 

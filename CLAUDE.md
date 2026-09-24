@@ -4,7 +4,7 @@ Transport management for a 59-bus school fleet: ~1,653 Round-1 students, ~325 Ro
 children, plus teachers riding the morning runs.
 
 Read `docs/HANDOFF.md`, `docs/ARCHITECTURE.md`, `docs/DOMAIN_RULES.md`,
-`docs/ANALYSIS_METHODS.md` and `docs/OPERATIONS.md` before making changes. They record rules and methods that are not derivable from the code.
+`docs/ANALYSIS_METHODS.md`, `docs/OPERATIONS.md` and `docs/FLEET.md` before making changes. They record rules and methods that are not derivable from the code.
 
 ## Hard constraints
 
@@ -21,6 +21,10 @@ Read `docs/HANDOFF.md`, `docs/ARCHITECTURE.md`, `docs/DOMAIN_RULES.md`,
 - **Round 2 routes are closed loops** (school → children → school). Start-point optimisation
   does not apply to Round 2.
 - **Deactivate, never delete.** Every query filters `active`; history is the audit trail.
+- **Fleet logs record the vehicle AND the route covered.** Never key a fleet log by route
+  alone — vehicles move between routes and spares have none.
+- **Change a fleet alert threshold in its SQL view and in its screen together**, and run
+  `tests/fleet/` afterwards.
 
 ## Style
 

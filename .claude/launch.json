@@ -4,8 +4,24 @@
     {
       "name": "TransportDesk",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8010", "--directory", "frontend"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8010",
+        "--directory",
+        "frontend"
+      ],
       "port": 8010
+    },
+    {
+      "name": "Fleet tests",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8012"
+      ],
+      "port": 8012
     }
   ]
 }

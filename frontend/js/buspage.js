@@ -48,11 +48,21 @@ export async function loadBusPage(bus){
   const [{data:cap},{data:econ},{data:det},{data:roster},{data:fuelSh},{data:tchs}]=await Promise.all([
     db.from('bus_capacity').select('*').eq('bus_id',bus).single(),
     db.from('bus_economics').select('*').eq('bus_id',bus).maybeSingle(),
-    db.from('bus_details').select('*').eq('bus_id',bus).maybeSingle(),
+    // vehicle, driver and conductor now live in their own tables; route_crew joins them for this route
+    db.from('route_crew').select('*').eq('bus_id',bus).maybeSingle(),
     db.from('bus_roster').select('sr_no,student_name,pickup_order,road_min_to_school,latitude,longitude,depot_lat,depot_lon,bus_has_depot').eq('bus_id',bus).order('pickup_order',{nullsFirst:false}),
     db.from('opt_student_fuel').select('sr_no,ride_km,ride_min,share_pct,fuel_share').eq('bus_id',bus),
     db.from('teachers').select('name,emp_code,latitude,longitude').eq('bus_no',String(bus)).order('name')]);
-  const d=det||{};
+  const c=det||{};
+  // field names kept from the old bus_details layout so the form below reads the same
+  const d={vehicle_no:c.reg_no,company:c.make,model_year:c.model_year,route_name:c.route_name,
+    driver_name:c.driver_name,driver_phone:c.driver_phone,driver_salary:c.driver_salary,
+    conductor_name:c.conductor_name,conductor_phone:c.conductor_phone,conductor_salary:c.conductor_salary,
+    maintenance_cost:c.annual_maintenance_declared};
+  const since=x=>x?`on this bus since ${new Date(x+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}`:'on this bus since before records were kept';
+  // A name is shown, not typed: replacing a person here would rename the old one and erase
+  // their tenure. Who drives the bus is changed on Fleet -> Staff.
+  const who=(l,k,s)=>`<div><label>${l}</label><input value="${esc(d[k]||'')}" disabled title="${esc(d[k]?since(s):'Nobody assigned')}"/></div>`;
   const stat=(l,v)=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`;
   const fld=(l,k)=>`<div><label>${l}</label><input id="bd_${k}" value="${esc(d[k]||'')}"/></div>`;
   // Salaries are monthly and maintenance is a yearly figure, so they are labelled as such
@@ -90,10 +100,12 @@ export async function loadBusPage(bus){
         <div><label>Age</label><input value="${age!=null?age+(age===1?' year':' years'):'—'}" disabled title="Worked out from the year of manufacture"/></div>
         ${fld('Route name','route_name')}</div>
       <h3 style="margin:16px 0 10px;font-size:15px">Driver &amp; conductor</h3>
-      <div class="grid">${fld('Driver name','driver_name')}${fld('Driver phone','driver_phone')}${fldn('Driver salary — monthly','driver_salary')}
-        ${fld('Conductor name','conductor_name')}${fld('Conductor phone','conductor_phone')}${fldn('Conductor salary — monthly','conductor_salary')}</div>
+      <div class="grid">${who('Driver','driver_name',c.driver_since)}${fld('Driver phone','driver_phone')}${fldn('Driver salary — monthly','driver_salary')}
+        ${who('Conductor','conductor_name',c.conductor_since)}${fld('Conductor phone','conductor_phone')}${fldn('Conductor salary — monthly','conductor_salary')}</div>
+      <div class="note" style="margin-top:6px">To put a different person on this bus, use <a href="#" id="bpStaff">Fleet → Staff</a> — that keeps a dated record of who drove it when.</div>
       <h3 style="margin:16px 0 10px;font-size:15px">Running cost</h3>
-      <div class="grid">${fldn('Maintenance — this year','maintenance_cost')}</div>
+      <div class="grid">${fldn('Maintenance declared for the year','maintenance_cost')}</div>
+      <div class="note" style="margin-top:6px">Itemised bills are on <b>Fleet → Bills</b>.</div>
       ${(staffYr||maintYr)?`<div class="note" style="margin-top:10px">Staff <b>${rs(staffYr)}</b>/yr (salaries &times; 12)${maintYr?` + maintenance <b>${rs(maintYr)}</b>/yr`:''}${econ&&econ.annual_fuel_cost?` + fuel <b>${rs(econ.annual_fuel_cost)}</b>/yr`:''} = <b>${rs(staffYr+maintYr+((econ&&+econ.annual_fuel_cost)||0))}</b> a year to run this bus.</div>`:''}
       ${d.conductor_name?'':'<div class="note" style="margin-top:8px">No conductor recorded on this bus.</div>'}
       <div class="actions"><button class="b-primary" id="bpSave">Save bus details</button><span class="note" id="bpState"></span></div>
@@ -105,19 +117,23 @@ export async function loadBusPage(bus){
     <h3 style="margin:0 0 8px;font-size:15px">Morning run — ${(roster||[]).length} student${(roster||[]).length===1?'':'s'}${(tchs&&tchs.length)?` + ${tchs.length} teacher${tchs.length===1?'':'s'}`:''}, in driving order</h3>
     <div style="background:#fff;border:1px solid var(--edge);border-radius:8px;overflow:auto"><table><thead><tr><th>#</th><th>Name</th><th>SR / Emp</th><th>Ride to school (along route)</th><th>Ride km</th><th>Fuel share</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${(tchs&&tchs.length)?`<div class="note" style="margin-top:8px">Teachers are placed where they add the least distance to the existing student route. The afternoon run drops students only.</div>`:''}`;
+  $('bpStaff').onclick=e=>{e.preventDefault(); if(globalThis.openFleet) openFleet('staff');};
   $('bpSave').onclick=async()=>{
-    const rec={bus_id:bus};
-    ['driver_name','driver_phone','conductor_name','conductor_phone','vehicle_no','company','route_name']
-      .forEach(k=>rec[k]=$('bd_'+k).value.trim()||null);
+    const txt=k=>$('bd_'+k).value.trim()||null;
     // A blank number must stay blank. Sending 0 would claim the bus costs nothing to run.
-    ['model_year','driver_salary','conductor_salary','maintenance_cost'].forEach(k=>{
-      const v=$('bd_'+k).value.trim(); rec[k]=v===''?null:Number(v);});
-    if(rec.model_year!=null&&(rec.model_year<1990||rec.model_year>new Date().getFullYear()+1)){
-      toast('Year of manufacture looks wrong','bad');return;}
-    if(['driver_salary','conductor_salary','maintenance_cost'].some(k=>rec[k]!=null&&rec[k]<0)){
-      toast('Costs cannot be negative','bad');return;}
-    const {error}=await db.from('bus_details').upsert(rec);
-    if(error){toast(error.message,'bad');return;}
+    const nm=k=>{const v=$('bd_'+k).value.trim(); return v===''?null:Number(v);};
+    const r={reg:txt('vehicle_no'),make:txt('company'),year:nm('model_year'),maint:nm('maintenance_cost'),
+      dSal:nm('driver_salary'),cSal:nm('conductor_salary')};
+    if(r.year!=null&&(r.year<1990||r.year>new Date().getFullYear()+1)){toast('Year of manufacture looks wrong','bad');return;}
+    if([r.maint,r.dSal,r.cSal].some(x=>x!=null&&x<0)){toast('Costs cannot be negative','bad');return;}
+    const writes=[db.from('bus_details').upsert({bus_id:bus,route_name:txt('route_name')})];
+    const veh={reg_no:r.reg,make:r.make,model_year:r.year,annual_maintenance_declared:r.maint};
+    if(c.vehicle_id) writes.push(db.from('vehicles').update(veh).eq('id',c.vehicle_id));
+    else if(r.reg) writes.push(db.from('vehicles').insert({...veh,bus_id:bus}));
+    if(c.driver_id) writes.push(db.from('staff').update({phone:txt('driver_phone'),monthly_salary:r.dSal}).eq('id',c.driver_id));
+    if(c.conductor_id) writes.push(db.from('staff').update({phone:txt('conductor_phone'),monthly_salary:r.cSal}).eq('id',c.conductor_id));
+    const res=await Promise.all(writes), err=res.find(x=>x.error);
+    if(err){toast(/reg_uidx/.test(err.error.message)?'That registration belongs to another vehicle':err.error.message,'bad');return;}
     toast('Bus details saved','good'); loadBusPage(bus);};
 }
 

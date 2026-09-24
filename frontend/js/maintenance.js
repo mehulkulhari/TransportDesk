@@ -58,7 +58,7 @@ const PSI_BY_SIZE = [
 
 const cardCss = 'background:#fff;border:1px solid var(--edge);border-radius:10px;padding:14px 16px';
 
-export function renderMaintenance(){
+export function renderMaintenance(target){
   const th = h => `<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--edge);font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#555">${h}</th>`;
   const td = (v,extra='') => `<td style="padding:8px 10px;border-bottom:1px solid var(--edge);${extra}">${v}</td>`;
 
@@ -120,8 +120,8 @@ export function renderMaintenance(){
       <div class="note" style="margin-top:8px">Combined, disciplined upkeep typically recovers <b>10–20%</b> of fuel — on a ₹99 L/yr fleet that is ₹10–20 lakh/yr, before any routing change.</div>
     </div>`;
 
-  $('maintBody').innerHTML = `
-    <h2 style="margin:0 0 4px">Maintenance → Mileage</h2>
+  (target || $('fleetBody')).innerHTML = `
+    <h2 style="margin:0 0 4px">Upkeep and mileage</h2>
     <div class="note" style="margin-bottom:16px">
       A bus's km/L isn't fixed — it depends heavily on how the vehicle is kept. Below is how each maintenance factor changes mileage,
       the best values/frequencies, and how it varies by bus size. Percentages are from published sources (US DOE / fueleconomy.gov,

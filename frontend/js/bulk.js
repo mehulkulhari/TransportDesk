@@ -43,7 +43,6 @@ export function renderBulk(){
           <select id="csvKind">
             <option value="profiles">Student profiles (whole school)</option>
             <option value="pickup">Pickup order (sr_no, seating_order, bus_no)</option>
-            <option value="busdetails">Bus details (driver / conductor / vehicle)</option>
           </select></div>
         <div><label>CSV file</label><input type="file" id="csvFile" accept=".csv,text/csv"/></div>
       </div>
@@ -176,18 +175,6 @@ export async function applyCsv(){
       }
       $('csvOut').innerHTML=`<div class="note" style="color:var(--good)">Set pickup order for ${done} students${miss?`; ${miss} SR not matched on the given bus`:''}.</div>`;
       toast(`Pickup order set for ${done}`,'good'); loadDashboard();
-    }
-    else if(csvKind==='busdetails'){
-      const recs=csvRows.map(r=>({
-        bus_id: parseInt(pick(r,['bus_id','bus','bus no','bus_no'])||'',10),
-        driver_name: pick(r,['driver_name','driver name']), driver_phone: digits(pick(r,['driver_phone','driver phone'])),
-        conductor_name: pick(r,['conductor_name','conductor name']), conductor_phone: digits(pick(r,['conductor_phone','conductor phone'])),
-        vehicle_no: pick(r,['vehicle_no','vehicle no','vehicle']), model: pick(r,['model'])
-      })).filter(x=>!isNaN(x.bus_id));
-      if(!recs.length){toast('Need a bus_id column','bad');$('csvGo').disabled=false;return;}
-      const n=await chunkUpsert('bus_details',recs,{onConflict:'bus_id'});
-      $('csvOut').innerHTML=`<div class="note" style="color:var(--good)">Saved details for ${n} buses.</div>`;
-      toast(`Uploaded ${n} bus records`,'good');
     }
   }catch(e){ $('csvOut').innerHTML=`<div class="note" style="color:var(--stop)">${esc(e.message||'Upload failed')}</div>`; toast('Upload failed','bad'); }
   $('csvGo').disabled=false;

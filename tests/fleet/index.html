@@ -1,0 +1,188 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Fleet regression tests</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../../frontend/css/main.css"></head>
+<body style="overflow:auto">
+<!-- Fleet regression tests. Drives the real Fleet modules against an in-memory stand-in database.
+     Run: python -m http.server 8000   (from the repo root), then open http://localhost:8000/tests/fleet/ -->
+<nav style="display:none"><button data-view="fleet" id="navFleet">Fleet</button></nav>
+<section class="view on" id="v-fleet" style="height:auto"><div class="pad" id="fleetBody"></div></section>
+<div id="toast"></div>
+<pre id="out" style="position:fixed;right:0;bottom:0;max-height:40vh;overflow:auto;background:#101c29;color:#cfe;font-size:11px;margin:0;padding:8px;z-index:99;max-width:48vw;white-space:pre-wrap"></pre>
+<script type="module">
+import { fakeDb, writes } from './fakedb.js';
+globalThis.$ = id => document.getElementById(id);
+globalThis.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+globalThis.rs = n => '₹' + Number(n || 0).toLocaleString('en-IN');
+globalThis.db = fakeDb;
+globalThis.buses = [1, 2, 3, 58].map(b => ({ bus_id: b }));
+const toasts = []; globalThis.toast = (m, k) => toasts.push([k || 'info', m]);
+window.confirm = () => true; window.open = () => null;
+const errors = []; window.addEventListener('error', e => errors.push(String(e.message))); window.addEventListener('unhandledrejection', e => errors.push('rejection: ' + (e.reason?.message || e.reason)));
+await import('../../frontend/js/maintenance.js');
+const { renderFleet } = await import('../../frontend/js/fleet.js');
+$('navFleet').onclick = () => renderFleet();
+const out = [], log = s => { out.push(s); $('out').textContent = out.join('\n'); };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const pane = () => $('fleetPane');
+const lastToast = () => (toasts[toasts.length - 1] || [])[1] || '';
+const check = (cond, msg) => log((cond ? '  PASS ' : '  FAIL ') + msg);
+const type = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
+
+for (const t of ['overview', 'tyres', 'km', 'fuel', 'service', 'checkup', 'docs', 'bills', 'staff', 'complaints', 'vehicles', 'guide']) {
+  const before = errors.length;
+  await renderFleet(t); await wait(250);
+  const txt = pane().innerText, broke = /could not load/i.test(txt);
+  check(!broke && errors.length === before && txt.length > 200, `${t.padEnd(10)} renders (${txt.length} chars)${broke ? ' — ' + txt.slice(0, 160) : ''}${errors.length > before ? ' — ' + errors.slice(before).join(' | ') : ''}`);
+}
+
+log('\n-- overview');
+await renderFleet('overview'); await wait(200);
+check(pane().querySelectorAll('.agroup').length >= 5, `alert groups drawn: ${pane().querySelectorAll('.agroup').length}`);
+check(pane().querySelectorAll('.vcard').length === 6, `vehicle cards: ${pane().querySelectorAll('.vcard').length}`);
+check(pane().querySelector('.agroup.sev3')?.open === true, 'most urgent group opens by default');
+check([...$('fleetNav').querySelectorAll('.ct')].some(c => !c.hidden), 'tab badges show counts');
+pane().querySelector('.go-tab[data-tab="docs"]').click(); await wait(300);
+check($('fleetNav').querySelector('button.on')?.dataset.t === 'docs', '"Open docs" button switches to the Documents tab');
+
+log('\n-- tyres');
+await renderFleet('tyres'); await wait(200);
+check(pane().querySelectorAll('.tbus').length === 6, `board shows every vehicle: ${pane().querySelectorAll('.tbus').length}`);
+check(/estimated/i.test(pane().innerText), 'board warns that specs are estimated');
+check(pane().querySelectorAll('.tyre.stop').length > 0, 'unsafe tyres coloured red');
+pane().querySelector('.tbus').click(); await wait(200);
+check(/pressure history/.test($('tyHist').innerText), 'clicking a bus opens its history');
+pane().querySelector('#tyMode [data-m="entry"]').click(); await wait(250);
+const row = pane().querySelector('tbody tr'), inp = row.querySelectorAll('input[data-k]');
+type(inp[0], '40'); await wait(20);
+check(inp[0].classList.contains('tone-stop'), 'entry colours a 40 psi front tyre (spec 75) red');
+check(/1 bus filled/.test($('tyCount').textContent), 'counts the filled row');
+const spare = [...pane().querySelectorAll('tbody tr')].find(tr => /Spare/.test(tr.innerText));
+type(spare.querySelector('input[data-k]'), '70'); await wait(20);
+let n = writes.length; $('tySave').click(); await wait(100);
+check(writes.length === n && /route/.test(lastToast()), `spare without a route is refused: "${lastToast()}"`);
+spare.querySelector('select').value = '2';
+$('tySave').click(); await wait(300);
+const tw = writes.filter(w => w.table === 'tyre_readings').pop();
+check(tw && tw.payload.length === 2 && tw.payload.every(r => r.recorded_on && 'provided_by' in r), `saves 2 readings with date + provided-by`);
+check(tw && tw.payload.find(r => r.vehicle_id === 5)?.bus_id === 2, 'spare reading records the route it covered');
+pane().querySelector('#tyMode [data-m="spec"]').click(); await wait(250);
+const sr = pane().querySelector('tbody tr'); type(sr.querySelector('[data-k="rec_fl"]'), '80'); sr.querySelector('[data-k="source"]').value = 'placard';
+sr.querySelector('[data-k="source"]').dispatchEvent(new Event('input', { bubbles: true }));
+$('spSave').click(); await wait(200);
+const sw = writes.filter(w => w.table === 'tyre_specs').pop();
+check(sw && sw.op === 'upsert' && sw.payload[0].rec_fl === 80 && sw.payload[0].source === 'placard', 'spec edit upserts only the changed row as placard');
+
+log('\n-- daily km');
+await renderFleet('km'); await wait(300);
+const kr = [...pane().querySelectorAll('#kmSheet tbody tr')].find(tr => tr.dataset.v === '1');
+const kIn = kr.querySelector('.kmIn');
+type(kIn, String(81698 + 120)); await wait(30);
+check(!kr.querySelector('.kmWhy').hidden, 'a day far above normal opens the reason box');
+n = writes.length; $('kmSave').click(); await wait(100);
+check(writes.length === n && /reason/i.test(lastToast()), `saving without the reason is refused: "${lastToast()}"`);
+kr.querySelector('.kmWhy').value = 'Picnic trip';
+$('kmSave').click(); await wait(300);
+const kw = writes.filter(w => w.table === 'odometer_readings' && w.op === 'insert').pop();
+check(kw && kw.payload[0].reason === 'Picnic trip' && kw.payload[0].recorded_on, 'saves the reading with its reason and date');
+await renderFleet('km'); await wait(300);
+const kr2 = [...pane().querySelectorAll('#kmSheet tbody tr')].find(tr => tr.dataset.v === '2');
+type(kr2.querySelector('.kmIn'), '1'); await wait(30);
+check(/lower than last/i.test(kr2.querySelector('.live').innerText), 'a reading below the last one is flagged');
+check(/Days with extra running/.test($('kmExtra').innerText) && $('kmExtra').querySelector('.addWhy'), 'extra-running list offers a reason after the fact');
+
+log('\n-- fuel');
+await renderFleet('fuel'); await wait(300);
+check(/Normal for this vehicle/.test($('fuHist').innerText), 'history states the vehicle\'s normal mileage');
+check(/Costing uses/.test($('fuFleet').innerText), 'fleet table compares logged km/L with the costing figure');
+type($('fuL'), '40'); type($('fuP'), '95'); await wait(20);
+check($('fuC').value === '3800.00', `cost auto-fills from litres x price: ${$('fuC').value}`);
+const lastOdo = Math.max(...[...$('fuHist').querySelectorAll('tbody tr')].map(tr => +tr.children[4].innerText.replace(/\D/g, '') || 0));
+type($('fuO'), String(lastOdo + 80)); await wait(30);
+check(!$('fuWhyF').hidden, `2 km/L against a ~4.9 normal asks for a reason`);
+n = writes.length; $('fuSave').click(); await wait(100);
+check(writes.length === n, 'refused without the reason');
+$('fuWhy').value = 'Long idle at event'; $('fuSave').click(); await wait(300);
+const fw = writes.filter(w => w.table === 'fuel_logs' && w.op === 'insert').pop();
+check(fw && fw.payload.litres === 40 && fw.payload.cost === 3800 && fw.payload.reason, 'fill saved with litres, cost and reason');
+
+log('\n-- service');
+await renderFleet('service'); await wait(300);
+check(/overdue|due within/.test($('svStatus').innerText), 'status summary rendered');
+type($('spKm'), '15000'); $('spAll').click(); await wait(300);
+const pw = writes.filter(w => w.table === 'service_plans').pop();
+check(pw && pw.payload.length === 6 && pw.payload.every(p => p.interval_km === 15000), 'interval applied to every vehicle');
+type($('svO'), '88000'); $('svSave').click(); await wait(300);
+check(writes.some(w => w.table === 'service_events' && w.payload.odo_km === 88000), 'service recorded');
+
+log('\n-- checkup');
+await renderFleet('checkup'); await wait(300);
+n = writes.length; $('ckSave').click(); await wait(100);
+check(writes.length === n && /not marked/.test(lastToast()), `unmarked parts block the save: "${lastToast()}"`);
+pane().querySelector('tr[data-p] .seg [data-s="requires_action"]').click();
+$('ckAll').click(); await wait(30);
+check(/1 requires action/i.test($('ckTally').textContent), 'mark-all keeps the part already marked "requires action"');
+$('ckSave').click(); await wait(300);
+const iw = writes.filter(w => w.table === 'checkup_items').pop();
+check(iw && iw.payload.length === 6 && iw.payload.filter(i => i.status === 'requires_action').length === 1, 'checkup saved with every part');
+pane().querySelector('#ckMode [data-m="parts"]').click(); await wait(250);
+type($('pN'), 'Wheel alignment'); $('pAdd').click(); await wait(200);
+check(writes.some(w => w.table === 'checkup_parts' && w.payload.name === 'Wheel alignment'), 'new part can be added to the list');
+
+log('\n-- documents');
+await renderFleet('docs'); await wait(300);
+check(/missing/.test($('dcGrid').innerText), 'coverage grid marks missing documents');
+check(/expired/i.test($('dcGrid').innerText), 'expired document shown');
+$('dcOwner').querySelector('[data-o="staff"]').click(); await wait(50);
+check($('dcS') && $('dcS').options.length >= 4, `person picker lists staff: ${$('dcS')?.options.length}`);
+check(/Driving licence/.test($('dcT').innerHTML), 'person documents offer driving licence');
+type($('dcE'), '2027-05-01'); type($('dcNo'), 'RJ-1'); $('dcSave').click(); await wait(300);
+check(writes.some(w => w.table === 'documents' && w.payload.staff_id && w.payload.doc_type === 'Driving licence'), 'licence saved against the person');
+
+log('\n-- bills');
+await renderFleet('bills'); await wait(300);
+check(/not in fleet/.test($('blList').innerText), 'a bill for a non-fleet vehicle is labelled');
+check(/whole fleet/.test($('blList').innerText), 'a fleet-wide bill is labelled');
+check(/whole-fleet bills/.test($('blVeh').innerText), 'per-vehicle spend notes the unsplit fleet-wide total');
+type($('blAmt'), '5000'); $('blSave').click(); await wait(300);
+check(writes.some(w => w.table === 'maintenance_bills' && w.payload.amount === 5000), 'bill saved');
+
+log('\n-- staff');
+await renderFleet('staff'); await wait(300);
+pane().querySelector('#stList tr[data-id="1"]').click(); await wait(300);
+check(/Tenures/.test($('stPane').innerText), 'profile shows tenures');
+$('spRep').click(); await wait(300);
+check(/Route 1/.test($('stReport').textContent) && /Km run/.test($('stReport').textContent), 'tenure report renders');
+check(/before records/i.test($('stReport').innerText), 'report says when a tenure began before records');
+await renderFleet('staff'); await wait(300);
+pane().querySelector('#stList tr[data-id="3"]').click(); await wait(300);
+$('smB').value = '1'; $('smMove').click(); await wait(400);
+const ends = writes.filter(w => w.table === 'staff_assignments' && w.op === 'update').slice(-2);
+const opens = writes.filter(w => w.table === 'staff_assignments' && w.op === 'insert').pop();
+const yday = new Date(Date.now() - 864e5 - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+check(ends.length === 2 && ends.every(e => e.payload.to_date === yday), `move ends both old tenures the day before (${ends.map(e => e.payload.to_date)} vs ${yday})`);
+check(opens && opens.payload.bus_id === 1 && opens.payload.staff_id === 3, 'move opens the new tenure');
+
+log('\n-- complaints');
+await renderFleet('complaints'); await wait(300);
+check(/Drove fast/.test($('cpList').innerText), 'open complaint listed');
+type($('cpRN'), 'Parent X'); $('cpD').value = 'Late again';
+$('cpS').value = $('cpS').options[1].value; $('cpS').dispatchEvent(new Event('change'));
+$('cpSave').click(); await wait(300);
+const cw = writes.filter(w => w.table === 'complaints' && w.op === 'insert').pop();
+check(cw && cw.payload.against_staff_id && cw.payload.bus_id && cw.payload.raised_by_name === 'Parent X', 'complaint saved against the driver, route filled in');
+pane().querySelector('.cpRes').value = 'Spoke to the driver'; pane().querySelector('[data-act="resolved"]').click(); await wait(300);
+check(writes.some(w => w.table === 'complaints' && w.op === 'update' && w.payload.status === 'resolved' && w.payload.resolved_on), 'complaint can be resolved with a note');
+
+log('\n-- vehicles');
+await renderFleet('vehicles'); await wait(300);
+check(/SPARE 0001/.test($('vhSpare').innerText) && /route 2/.test($('vhSpare').innerText), 'spare usage shows the route it covered');
+const mk = pane().querySelector('#vhReg tr[data-id="1"] [data-k="make"]'); type(mk, 'Eicher Skyline');
+n = writes.length; $('vhSave').click(); await wait(300);
+const vw = writes.slice(n);
+check(vw.length === 1 && vw[0].payload.make === 'Eicher Skyline', `editing only the make writes one update, no route churn (${vw.length} writes)`);
+
+log(`\nERRORS: ${errors.length ? errors.join(' | ') : 'none'}`);
+const f = out.filter(l => l.includes('FAIL')).length, p = out.filter(l => l.includes('PASS')).length;
+log(`RESULT: ${p} passed, ${f} failed`);
+window.__done = { pass: p, fail: f, out: out.join('\n') };
+</script></body></html>

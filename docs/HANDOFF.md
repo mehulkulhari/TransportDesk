@@ -3,7 +3,8 @@
 Everything a developer needs to take this over. Read this first, then `ARCHITECTURE.md`
 (how the system is built and why), `DOMAIN_RULES.md` (business rules that are not
 guessable from the code), `ANALYSIS_METHODS.md` (how the figures are produced) and
-`OPERATIONS.md` (how the data must be kept, and the maintenance routine).
+`OPERATIONS.md` (how the data must be kept, and the maintenance routine). The Fleet
+module — tyres, fuel, kilometres, documents, staff — has its own guide in `FLEET.md`.
 
 **This repository is public. It must never contain student names, addresses, coordinates,
 or GPS tracks.** Everything identifying is handed over separately — see *What you receive
@@ -64,11 +65,13 @@ frontend/          the app. index.html + js/ ES modules, no build step
   js/rounds.js     Round 1 / Round 2 switching — read DOMAIN_RULES.md before touching
   js/optimization.js / optimization_r2.js   cost analysis pages, one per round
   js/maps.js, mapfocus.js, teacherroute.js  Leaflet maps and route drawing
+  js/fleet.js + fleet_*.js + fleetkit.js     the Fleet module (see docs/FLEET.md)
 sql/               tables, views, functions, policies, reports — the source of truth
   ARCHIVED.md      what was moved out of the live schema on 2026-09-03, and why
 supabase/          config and migrations
 python/            coordinate and routing helpers
-docs/              this file, plus ARCHITECTURE.md (how it is built and why),
+tests/fleet/       regression tests for the Fleet screens (64 checks, no login needed)
+docs/              this file, FLEET.md (the fleet module), ARCHITECTURE.md (how it is built and why),
                    DOMAIN_RULES.md (rules not in the code), ANALYSIS_METHODS.md
                    (how figures are measured), OPERATIONS.md (data-entry rule
                    and the maintenance routine)
@@ -134,7 +137,13 @@ Open items, roughly in priority order:
    vehicle, not the route, so `buses.mileage` for those routes should be re-checked before
    any cost figure that uses them is quoted again. Compare `bus_details.vehicle_no` against
    the plate in each KML filename.
-9. Live GPS integration and an attendance module were both scoped but not started.
+9. **Fleet module inputs still outstanding** — real placard tyre pressures (every spec is
+   still an estimate), the school's own checkup parts list, time-based service intervals,
+   and the two spare buses. Historical fuel and kilometre logs were deliberately not loaded.
+   See `docs/FLEET.md` §8.
+10. **`buses.mileage` is keyed by route, not vehicle.** When a vehicle changes route its
+   reference mileage does not follow it. The Fleet tab's logged mileage is the fix.
+11. Live GPS integration and an attendance module were both scoped but not started.
 
 ## 7. Conventions worth keeping
 
