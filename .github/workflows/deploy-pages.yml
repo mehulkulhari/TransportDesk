@@ -27,6 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Pages lets browsers cache every file for 10 minutes, so right after a deploy a
+      # browser could run the new page with old modules (a new menu, old tabs). Stamping
+      # every local module and the stylesheet with this commit makes each deploy a
+      # separate set of URLs. The stamp is the same everywhere, so each module still
+      # loads once. Only the published copy is changed, never the repository.
+      - name: Stamp module URLs with the commit
+        run: |
+          V="${GITHUB_SHA::8}"
+          find frontend \( -name '*.js' -o -name '*.html' \) -print0 | xargs -0 sed -i -E "s#((from|import)[[:space:]]*[\"'])(\./[A-Za-z0-9_./-]+\.js)([\"'])#\1\3?v=$V\4#g"
+          sed -i -E "s#src=\"(js/[A-Za-z0-9_./-]+\.js)\"#src=\"\1?v=$V\"#g; s#href=\"(css/[A-Za-z0-9_./-]+\.css)\"#href=\"\1?v=$V\"#g" frontend/index.html
+          grep -c "?v=$V" frontend/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend

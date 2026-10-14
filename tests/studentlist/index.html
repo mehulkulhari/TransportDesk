@@ -101,10 +101,10 @@ document.body.insertAdjacentHTML('afterbegin', '<div class="pad" id="reportsBody
 globalThis.renderOptimization = async () => { $('optBody').textContent = 'optimization page'; };
 const { renderReports } = await import('../../frontend/js/reports.js');
 await renderReports(); await wait(50);
-const optTab = [...$('repTabs').children].find(b => b.dataset.r === 'Optimization');
-check(optTab && $('repTabs').children[1] === optTab, 'Reports has an Optimization tab, second after the bus-wise list');
+const optTab = [...$('repTabs').children].find(b => b.dataset.r === 'Optimisation');
+check(optTab && $('repTabs').children[1] === optTab, 'Reports has an Optimisation tab, second after the bus-wise list');
 optTab.click(); await wait(50);
-check($('repOut').querySelector('#optBody')?.textContent === 'optimization page', 'the Optimization tab renders the optimization page into #optBody');
+check($('repOut').querySelector('#optBody')?.textContent === 'optimization page', 'the Optimisation tab renders the optimization page into #optBody');
 
 const f = out.filter(l => l.includes('FAIL')).length, p = out.filter(l => l.includes('PASS')).length;
 log(`RESULT: ${p} passed, ${f} failed`); window.__done = { pass: p, fail: f, out: out.join('\n') };

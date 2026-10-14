@@ -80,6 +80,26 @@ forwarded beyond the people who need it.
 The list is defined once, in the `bus_student_list` view
 (`supabase/migrations/20261014000000_bus_student_list.sql`).
 
+### Staybacks and half days — the Planner
+
+**Planner** builds drop routes for whoever is coming on a given day. Type SR numbers,
+tick whole classes (with quick picks for pre-primary, 1–5, 6–8, 9–10 and 11–12), or both;
+list the buses available (blank means all); optionally set a time limit per bus. A class
+pick takes only children who use transport; a typed SR is taken whoever it is. Class
+names are spelled several ways in the records ("1", "1st", "I-ENG"), and the picker
+treats each spelling as the same class.
+
+Each bus gets the smallest bus that holds its group, and a route over the time limit is
+split onto a free bus for as long as free buses remain — whatever still runs over is
+shown in red. Times are Google's driving time plus 20 seconds a drop.
+
+**Copy route for driver** copies the bus's drops in order with Google Maps links;
+**Send on WhatsApp** opens a message to the driver's number on record. One link holds
+up to 10 drops (Google's limit is 9 waypoints plus the destination), so a longer route
+gets one link per 10 drops, each starting where the last ended. Links open properly in
+the Google Maps app; a phone's web browser shows only the first three stops. The links
+carry children's home locations — send them only to that bus's driver.
+
 ## 2. Maintenance routine
 
 Ordered by how quickly the thing being checked turns into a real problem.
@@ -95,10 +115,10 @@ Ordered by how quickly the thing being checked turns into a real problem.
 | Every fill | Litres, price, bill amount and odometer; explain any flagged mileage | Fleet → Fuel |
 | Fortnightly | Tyre pressure — **all four tyres** recorded per bus | Fleet → Tyres → Enter readings |
 | When renewed | Upload the new permit, fitness, insurance, PUC or licence | Fleet → Documents |
-| Monthly | Recompute route geometry and the optimisation snapshot | Reports → Optimization |
+| Monthly | Recompute route geometry and the optimisation snapshot | Reports → Optimisation |
 | Monthly | Fuel logged against each bus's recorded mileage; investigate drift | Reports · Fuel |
 | Termly | Fresh GPS download for every bus; re-measure empty running | KVL export |
-| Termly | Review start points against where buses actually begin | Reports → Optimization |
+| Termly | Review start points against where buses actually begin | Reports → Optimisation |
 | Yearly | Re-measure mileage; refresh diesel price and working days | `buses`, `transport_params` |
 
 Two deserve a named owner rather than a rota: the **fortnightly tyre round**, which has a

@@ -1,0 +1,115 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Route planner tests</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="../../frontend/css/main.css"></head>
+<body style="overflow:auto">
+<!-- Regression tests for the Planner tab. All data below is fictitious; Google is a stand-in
+     that drives in straight lines at 20 km/h, so times are predictable.
+     Run: python -m http.server 8012 (repo root), open http://localhost:8012/tests/planner/ -->
+<section class="view on" id="v-planner" style="position:relative;height:700px">
+  <div style="display:grid;grid-template-columns:380px 1fr;height:100%">
+    <div style="padding:16px;overflow:auto">
+      <textarea id="plSrs"></textarea><div id="plClasses"></div><div id="plCount"></div>
+      <input id="plBuses"/><input id="plLimit"/><button id="plGo">Plan routes</button>
+      <div id="plStats"></div><div id="plList"></div></div>
+    <div id="plannermap" style="position:relative"></div></div></section>
+<div id="toast"></div>
+<pre id="out" style="background:#101c29;color:#cfe;font-size:11px;padding:8px;white-space:pre-wrap"></pre>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+globalThis.$ = id => document.getElementById(id);
+globalThis.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+globalThis.addBaseLayer = () => {}; globalThis.colorOf = {}; globalThis.tdRound = 1;
+globalThis.school = { latitude: 27.578, longitude: 75.137 };
+await import('../../frontend/js/utils.js');                 // registers hav, fetchAll, toast
+const toasts = []; globalThis.toast = (m, k) => toasts.push([k, m]);
+const out = [], log = s => { out.push(s); $('out').textContent = out.join('\n'); };
+const check = (c, m) => log((c ? '  PASS ' : '  FAIL ') + m);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+// ---- roster: messy class labels on purpose, as in the real records
+const S = [];
+const at = (i, ring) => [27.578 + Math.cos(i * 0.7) * ring, 75.137 + Math.sin(i * 0.7) * ring];
+const add = (sr, cls, i, ring, extra = {}) => { const [la, lo] = at(i, ring);
+  S.push({ sr_no: sr, student_name: 'Kid ' + sr, class: cls, section: 'A', latitude: la, longitude: lo, bus_id: 5, uses_transport: true, ...extra }); };
+['1', '1st', 'I-ENG'].forEach((c, j) => { for (let i = 0; i < 4; i++) add(String(100 + j * 10 + i), c, j * 4 + i, 0.05 + i * 0.01); });
+['4', 'IV'].forEach((c, j) => { for (let i = 0; i < 5; i++) add(String(200 + j * 10 + i), c, 20 + j * 5 + i, 0.04 + i * 0.012); });
+['NURSERY', 'Nursery'].forEach((c, j) => { for (let i = 0; i < 3; i++) add(String(300 + j * 10 + i), c, 40 + j * 3 + i, 0.03); });
+['12th Sci', '12th Science'].forEach((c, j) => { for (let i = 0; i < 3; i++) add(String(400 + j * 10 + i), c, 50 + j * 3 + i, 0.06); });
+add('500', '5', 60, 0.02, { uses_transport: false });       // comes by self
+add('501', '5', 61, 0.03, { latitude: null, longitude: null }); // no pickup point
+for (let i = 0; i < 25; i++) add(String(600 + i), '9', 70 + i, 0.02 + (i % 5) * 0.015);
+globalThis.fetchAll = async (t) => t === 'student_effective' ? S.map(s => ({ ...s })) : [];
+
+// ---- buses and crew through the real client, its from() replaced
+const { db } = await import('../../frontend/js/supabase.js');
+const BUSES = [{ bus_id: 1, capacity: 10, start_latitude: 27.6, start_longitude: 75.1 }, { bus_id: 2, capacity: 20, start_latitude: 27.55, start_longitude: 75.2 },
+  { bus_id: 3, capacity: 30, start_latitude: 27.5, start_longitude: 75.1 }, { bus_id: 4, capacity: 40, start_latitude: 27.6, start_longitude: 75.2 },
+  { bus_id: 5, capacity: 12, start_latitude: 27.58, start_longitude: 75.14 }];
+const CREW = [{ bus_id: 1, driver_name: 'Driver A', driver_phone: '9000000001' }, { bus_id: 2, driver_name: 'Driver B', driver_phone: null }];
+db.from = t => { const rows = t === 'buses' ? BUSES : t === 'route_crew' ? CREW : [];
+  const q = { select: () => q, order: () => q, eq: () => q, then: (r, j) => Promise.resolve({ data: rows, error: null }).then(r, j) }; return q; };
+
+// ---- Google stand-in: straight lines at 20 km/h
+const legKm = (a, b) => hav(a.lat, a.lng, b.lat, b.lng);
+globalThis.google = { maps: { geometry: {}, TravelMode: { DRIVING: 'DRIVING' }, DirectionsService: class { route(req, cb) {
+  const pts = [req.origin, ...req.waypoints.map(w => w.location), req.destination];
+  const legs = pts.slice(1).map((p, i) => { const km = legKm(pts[i], p); return { distance: { value: km * 1000 }, duration: { value: km / 20 * 3600 } }; });
+  setTimeout(() => cb({ routes: [{ legs, overview_path: pts.map(p => ({ lat: () => p.lat, lng: () => p.lng })) }] }, 'OK'), 0); } } } };
+let clip = null; Object.defineProperty(navigator, 'clipboard', { value: { writeText: async t => { clip = t; } }, configurable: true });
+
+const P = await import('../../frontend/js/planner.js');
+log('-- class labels');
+const K = { '1': '1', '1st': '1', 'I-ENG': '1', 'IV': '4', '4': '4', 'NURSERY': 'Nursery', 'Nursery': 'Nursery', 'lkg': 'LKG',
+  '12th Sci': '12 Science', '12th Science': '12 Science', '11th Commerce': '11 Commerce', '11th Humanities': '11 Humanities', 'X': '10', '': 'Not set' };
+const bad = Object.entries(K).filter(([a, b]) => P.classKey(a) !== b);
+check(!bad.length, 'one key per class: ' + (bad.length ? bad.map(([a, b]) => `${a}→${P.classKey(a)} (want ${b})`).join(', ') : '14 spellings mapped'));
+
+log('\n-- picking students');
+await P.renderPlanner(); await wait(100);
+const chip = k => $('plClasses').querySelector(`.clchip[data-k="${k}"]`);
+check(chip('1') && /Class 1\s*12/.test(chip('1').textContent), `"1", "1st" and "I-ENG" are one chip of 12: "${chip('1')?.textContent}"`);
+check(chip('Nursery') && !chip('NURSERY'), 'Nursery and NURSERY are one chip');
+check(/Class 5\s*1/.test(chip('5')?.textContent || ''), 'class counts exclude children who come by self (class 5: 1 with transport)');
+$('plClasses').querySelector('[data-q="1"]').click(); await wait(10);                // quick pick 1–5
+check(['1', '4', '5'].every(k => chip(k).getAttribute('aria-pressed') === 'true') && chip('9').getAttribute('aria-pressed') === 'false', 'quick pick "1–5" ticks classes 1, 4 and 5 only');
+check(/23 students selected · 23 from 3 classes/.test($('plCount').textContent), `count: "${$('plCount').textContent}"`);
+$('plSrs').value = '500, 999, 600'; $('plSrs').dispatchEvent(new Event('input')); await wait(10);
+check(/25 students selected/.test($('plCount').textContent) && /1 not found/.test($('plCount').textContent), `typed SRs add to the classes, self-transport child included by SR: "${$('plCount').textContent}"`);
+
+log('\n-- planning');
+$('plGo').click(); await wait(600);
+const rows = [...$('plList').querySelectorAll('.plrow')];
+const dropped = +$('plStats').firstElementChild.firstElementChild.firstElementChild.textContent;
+check(dropped === 24, `24 dropped (25 selected, 1 without a pickup point): ${dropped}`);
+check(/1 student\(s\) have no pickup point/.test($('plList').textContent) && /Kid 501/.test($('plList').textContent), 'student without a pickup point is named, not silently dropped');
+check(/1 SR\(s\) not found: 999/.test($('plList').textContent), 'unknown SR is reported');
+check(rows.length === 1 && /Bus 3/.test(rows[0].textContent), `24 students fit the smallest bus that holds them (Bus 3, 30 seats): ${rows.map(r => r.querySelector('span:nth-child(2)').textContent).join(' | ')}`);
+check(!/Stayback radius|Max drops|Dwell/.test(document.body.innerText), 'radius, max drops and dwell inputs are gone');
+
+log('\n-- Google Maps links');
+const links = [...rows[0].querySelectorAll('a[href^="https://www.google.com/maps/dir/"]')];
+check(links.length === 3 && /\(1–10\)/.test(links[0].textContent) && /\(21–24\)/.test(links[2].textContent), `24 drops make 3 links of up to 10: ${links.map(a => a.textContent).join(', ')}`);
+const u0 = new URL(links[0].href), u1 = new URL(links[1].href);
+check(u0.searchParams.get('api') === '1' && u0.searchParams.get('origin') === '27.578000,75.137000' && u0.searchParams.get('travelmode') === 'driving', 'first link starts at school, driving');
+check(u0.searchParams.get('waypoints').split('|').length === 9, 'nine waypoints + destination per link');
+check(u1.searchParams.get('origin') === u0.searchParams.get('destination'), 'each next link starts where the last one ended');
+rows[0].querySelector('.plcopy').click(); await wait(20);
+check(clip && /^Bus 3 — drop route/.test(clip) && /^1\. Kid \d+ \(Class \d+\)$/m.test(clip) && (clip.match(/google\.com\/maps\/dir/g) || []).length === 3, 'copied message: bus, ordered names with class, all three links');
+check(!rows[0].querySelector('a[href^="https://wa.me/"]'), 'no WhatsApp button when the driver has no phone on record');
+
+log('\n-- time limit');
+$('plBuses').value = '1, 2, 4'; $('plLimit').value = '12'; $('plGo').click(); await wait(900);
+const r2 = [...$('plList').querySelectorAll('.plrow')];
+const mins = r2.map(r => +(r.textContent.match(/~(\d+) min/) || [])[1]);
+check(r2.length >= 2 && /split onto another bus/.test($('plList').textContent), `a route over 12 min is split onto a free bus (${r2.length} buses, ${mins.join('/')} min)`);
+check(r2.every(r => /Bus [124]\b/.test(r.textContent)), 'only the buses listed as available are used');
+const wa = $('plList').querySelector('a[href^="https://wa.me/919000000001?text="]');
+check(!r2.some(r => /Bus 1\b/.test(r.textContent)) || wa, 'Bus 1\'s driver gets a WhatsApp button with 91 + phone');
+$('plBuses').value = '1'; $('plLimit').value = '5'; $('plGo').click(); await wait(600);
+check(/UNASSIGNED/.test($('plList').textContent), 'students beyond the available seats show as unassigned');
+$('plCopyAll').click(); await wait(20);
+check(clip && !/UNASSIGNED/.test(clip), '"Copy all routes" copies only routes that have a bus');
+
+const f = out.filter(l => l.includes('FAIL')).length, p = out.filter(l => l.includes('PASS')).length;
+log(`RESULT: ${p} passed, ${f} failed`); window.__done = { pass: p, fail: f, out: out.join('\n') };
+</script></body></html>

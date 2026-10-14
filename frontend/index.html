@@ -98,20 +98,19 @@
     <section class="view" id="v-fleet"><div class="pad" id="fleetBody"></div></section>
     <section class="view" id="v-teachers"><div class="pad" id="teachersBody"></div></section>
     <section class="view" id="v-planner" style="position:relative">
-      <div style="display:grid;grid-template-columns:340px 1fr;height:100%">
+      <div style="display:grid;grid-template-columns:380px 1fr;height:100%">
         <div style="padding:16px;overflow:auto;border-right:1px solid var(--edge);background:#fff">
           <h2 style="margin:0 0 4px">Route planner</h2>
-          <div class="note" style="margin-bottom:12px">Give it students (by SR) and the buses available, and it assigns each student to a bus and builds the real-road drop route with exact distance and time. Built for staybacks — dropping students who stayed late — at minimum fuel within a time limit.</div>
-          <div class="field"><label>Student SR numbers</label>
-            <textarea id="plSrs" placeholder="e.g. 2492, 2822, 4411 …" style="width:100%;min-height:90px;padding:8px;border:1px solid var(--edge);border-radius:6px;font-family:var(--font-mono,monospace);font-size:13px;resize:vertical"></textarea></div>
-          <div class="field"><label>Available buses (blank = all)</label>
+          <div class="note" style="margin-bottom:12px">Say who is coming — by SR number, by whole class, or both — and which buses are available. It puts each student on a bus, builds the real-road drop route with distance and time, and gives each driver a Google Maps link.</div>
+          <div class="field"><label for="plSrs">Student SR numbers</label>
+            <textarea id="plSrs" placeholder="e.g. 2492, 2822, 4411 …" style="width:100%;min-height:70px;padding:8px;border:1px solid var(--edge);border-radius:6px;font-family:var(--font-mono,monospace);font-size:13px;resize:vertical"></textarea></div>
+          <div class="field"><label>Whole classes</label>
+            <div id="plClasses"></div></div>
+          <div class="note" id="plCount" style="margin:-4px 0 10px"></div>
+          <div class="field"><label for="plBuses">Available buses (blank = all)</label>
             <input id="plBuses" placeholder="e.g. 18, 19, 20, 40" autocomplete="off"/></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div class="field"><label>Stayback radius (km)</label><input id="plRadius" value="8" autocomplete="off"/></div>
-            <div class="field"><label>Max drops / bus</label><input id="plMax" value="20" autocomplete="off"/></div>
-            <div class="field"><label>Dwell / stop (sec)</label><input id="plDwell" value="20" autocomplete="off"/></div>
-            <div class="field"><label>Time limit (min, optional)</label><input id="plLimit" placeholder="e.g. 60" autocomplete="off"/></div>
-          </div>
+          <div class="field"><label for="plLimit">Time limit per bus (min, optional)</label>
+            <input id="plLimit" placeholder="e.g. 60" autocomplete="off" inputmode="numeric"/></div>
           <button class="b-signal" id="plGo" style="width:100%;margin-top:6px">Plan routes</button>
           <div id="plStats" style="margin-top:14px"></div>
           <div id="plList" style="margin-top:8px"></div>

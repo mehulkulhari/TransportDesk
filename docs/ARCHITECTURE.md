@@ -45,10 +45,10 @@ history handling would add moving parts without removing any.
 | Module | Lines | Responsibility |
 | --- | --- | --- |
 | `app.js` | 1092 | view switching, shared globals, search, CSV import, reports |
-| `optimization.js` | 755 | Round-1 optimisation page — the largest feature; shown under Reports → Optimization since Oct 2026 |
+| `optimization.js` | 755 | Round-1 optimisation page — the largest feature; shown under Reports → Optimisation since Oct 2026 |
 | `maps.js`, `mapfocus.js` | 452 | Leaflet setup, route drawing, focusing a bus |
 | `students.js` | 280 | student editor, map pin, coordinate safety |
-| `planner.js` | 215 | route planner with live Directions |
+| `planner.js` | 330 | route planner: SRs and whole classes in, per-bus routes and Google Maps links out |
 | `bulk.js` | 196 | bulk transfer between buses |
 | `optimization_r2.js` | 157 | Round-2 optimisation, deliberately separate |
 | `roundmove.js` | 154 | moving a child between rounds |
