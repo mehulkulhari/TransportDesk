@@ -2,15 +2,14 @@ import { db } from "./supabase.js";
 import { toast } from "./utils.js";
 import { loadBusPage } from "./buspage.js";
 import { loadPickup } from "./pickup.js";
-import { alertGroups, bindAlertGroups, openFleet } from "./fleet.js";
+import { openFleet } from "./fleet.js";
+import { renderFleetWeek } from "./fleet_week.js";
 
-/** Fleet alerts belong to vehicles, not to a round, so both dashboards show them. */
+/** Fleet data belongs to vehicles, not to a round, so both dashboards show it.
+ *  The section loads on its own after the page is drawn (see fleet_week.js). */
 async function fleetSection(){
-  const {data,error}=await db.from('fleet_alerts').select('*');
-  if(error) return '';
-  const n=(data||[]).filter(a=>a.severity>=2).length;
-  return `<h2 style="margin:22px 0 10px">Fleet <span class="note">(${n} need attention · tyres, documents, service, fuel, complaints)</span></h2>
-    <div id="dashFleet">${alertGroups(data||[],{max:15})}</div>`;
+  return `<h2 style="margin:22px 0 10px">Fleet <span class="note">(tyres, daily km and fuel, week by week)</span></h2>
+    <div id="dashFleet"></div>`;
 }
 
 function goFix(kind, subject){
@@ -50,7 +49,7 @@ export async function loadDashboard(){
     <h2 style="margin:22px 0 10px">Students <span class="note">(${(al||[]).length})</span></h2>
     ${alertBlock}
     ${fleet}`;
-  if($('dashFleet')) bindAlertGroups($('dashFleet'), openFleet);
+  if($('dashFleet')) renderFleetWeek($('dashFleet'), openFleet);
   document.querySelectorAll('#dashBody .alert[data-i]').forEach(el=>{
     el.onclick=()=>{ const a=(al||[])[Number(el.dataset.i)]; if(a) goFix(a.kind, a.subject); };
   });
@@ -82,7 +81,7 @@ async function loadDashboardR2(){
       <table><thead><tr><th>Bus</th><th>Children</th><th>Seats</th><th>Classes</th></tr></thead><tbody>${busRows}</tbody></table></div>
     <div class="note" style="margin-top:14px">Student alerts and Optimization analyse <b>Round 1</b>. Switch back with the toggle in the header.</div>
     ${fleet}`;
-  if($('dashFleet')) bindAlertGroups($('dashFleet'), openFleet);
+  if($('dashFleet')) renderFleetWeek($('dashFleet'), openFleet);
 }
 
 // The nav handler in app.js calls loadDashboard() as a global; expose it.

@@ -89,14 +89,16 @@ Ordered by how quickly the thing being checked turns into a real problem.
 | Weekly | Buses over effective capacity | Dashboard alerts |
 | Weekly | Missing coordinates; self-transport children still showing a bus | Dashboard alerts |
 | Weekly | Children active in both rounds at once | Students, both rounds |
-| Daily | Odometer reading for every bus on reaching school; give a reason for any flagged day | Fleet → Daily km |
+| Daily | Odometer reading for every bus on reaching school, by 11:00; give a reason for any flagged day | Fleet → Daily km |
+| Weekly | Chase every *Data entry missing* line; get a reason or a fix for every *Deviation found* | Dashboard → Fleet |
+| Before every holiday | Enter the day(s) off, or every bus shows km as missing | Fleet → Daily km → Holidays |
 | Every fill | Litres, price, bill amount and odometer; explain any flagged mileage | Fleet → Fuel |
 | Fortnightly | Tyre pressure — **all four tyres** recorded per bus | Fleet → Tyres → Enter readings |
 | When renewed | Upload the new permit, fitness, insurance, PUC or licence | Fleet → Documents |
-| Monthly | Recompute route geometry and the optimisation snapshot | Optimization page |
+| Monthly | Recompute route geometry and the optimisation snapshot | Reports → Optimization |
 | Monthly | Fuel logged against each bus's recorded mileage; investigate drift | Reports · Fuel |
 | Termly | Fresh GPS download for every bus; re-measure empty running | KVL export |
-| Termly | Review start points against where buses actually begin | Optimization |
+| Termly | Review start points against where buses actually begin | Reports → Optimization |
 | Yearly | Re-measure mileage; refresh diesel price and working days | `buses`, `transport_params` |
 
 Two deserve a named owner rather than a rota: the **fortnightly tyre round**, which has a

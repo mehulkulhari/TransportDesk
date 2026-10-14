@@ -7,7 +7,7 @@ export async function renderReports(){
   $('reportsBody').innerHTML=`<h2 style="margin:0 0 4px">Reports &amp; analytics</h2>
     <div class="note" style="margin-bottom:12px">Live analysis of the fleet, using the diesel price, working days and trips set in the parameters. Fuel and route numbers are model estimates; fees are actuals.</div>
     <div class="busbtns" id="repTabs">
-      ${['Bus-wise list','Fuel efficiency','Capacity','Finance','Start points','Geography'].map((k,i)=>`<button data-r="${k}" class="${i===0?'on':''}">${k}</button>`).join('')}
+      ${['Bus-wise list','Optimization','Fuel efficiency','Capacity','Finance','Start points','Geography'].map((k,i)=>`<button data-r="${k}" class="${i===0?'on':''}">${k}</button>`).join('')}
     </div>
     <div id="repOut" style="margin-top:16px"></div>`;
   const tabs=[...$('repTabs').children];
@@ -18,6 +18,8 @@ export async function renderReports(){
 export async function repSection(which){
   const out=$('repOut');out.innerHTML='<div class="hint">Calculating…</div>';
   if(which==='Bus-wise list') return renderStudentList(out);
+  // The Optimization page renders itself into #optBody, as it did when it had its own tab.
+  if(which==='Optimization'){ out.innerHTML='<div id="optBody"></div>'; return globalThis.renderOptimization(); }
   if(which==='Fuel efficiency'){
     const [{data:s},{data:rows}]=await Promise.all([
       db.from('report_fuel_summary').select('*').single(),

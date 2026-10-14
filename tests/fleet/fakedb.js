@@ -102,7 +102,12 @@ T.fleet_alerts = [
   { kind: 'fuel_deviation', subject: V[0].reg_no, detail: '3.1 km/L against a normal 4.9 (-36.7%) - reason needed', severity: 2, vehicle_id: 1, bus_id: 1 },
   { kind: 'service_due', subject: V[1].reg_no, detail: 'service due - 10 days left', severity: 1, vehicle_id: 2, bus_id: 2 },
   { kind: 'checkup_action', subject: V[0].reg_no, detail: '1 part require action: Brakes', severity: 2, vehicle_id: 1, bus_id: 1 },
-  { kind: 'complaint_open', subject: 'Driver One', detail: 'raised by A parent: Drove fast near the school gate', severity: 2, vehicle_id: null, bus_id: 1 }];
+  { kind: 'complaint_open', subject: 'Driver One', detail: 'raised by A parent: Drove fast near the school gate', severity: 2, vehicle_id: null, bus_id: 1 },
+  { kind: 'km_missing', subject: V[2].reg_no, detail: 'no odometer reading for Wed 14 Oct', severity: 1, vehicle_id: 3, bus_id: 3 }];
+// the live view tags every alert with the list it belongs to
+const CAT = { tyre_unsafe: 'deviation', tyre_pressure: 'deviation', tyre_imbalance: 'deviation', km_unexplained: 'deviation', km_backwards: 'deviation',
+  fuel_deviation: 'deviation', tyre_check_due: 'entry_missing', km_missing: 'entry_missing', fuel_missing: 'entry_missing' };
+T.fleet_alerts.forEach(a => a.category = CAT[a.kind] || 'other');
 T.vehicle_overview = V.map(v => { const a = T.fleet_alerts.filter(x => x.vehicle_id === v.id), ts = T.tyre_status.find(t => t.vehicle_id === v.id);
   return { vehicle_id: v.id, reg_no: v.reg_no, bus_id: v.bus_id, is_spare: v.is_spare, make: v.make, model_year: v.model_year, seats: v.seats,
     tyre_status: ts.status, tyre_checked_on: ts.recorded_on, tyre_stale: ts.stale, avg_daily_km: v.id <= 3 ? 49 : null,
@@ -112,6 +117,34 @@ T.vehicle_overview = V.map(v => { const a = T.fleet_alerts.filter(x => x.vehicle
     n_alerts: a.length, max_severity: a.length ? Math.max(...a.map(x => x.severity)) : 0 }; });
 T.students = [{ sr_no: '5001', name: 'Test Student', bus_no: 1, active: true }];
 T.students_round2 = [];
+T.fleet_off_days = [{ day: iso(-3), reason: 'Test holiday', provided_by: 'Office', active: true },
+  { day: iso(-4), reason: 'Removed earlier', active: false }];
+
+// ---- the fleet week (fleet_week_trend / fleet_week_report), fictitious figures
+const monday = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7); return d; })();
+const wk = i => new Date(monday.getTime() - i * 7 * 864e5).toISOString().slice(0, 10);   // i weeks back
+const K = (i) => {
+  const tracked = i <= 3, tyre = i === 0 ? [5, -12.1, 16.0, 3, 1] : i === 1 ? [6, -15.3, 19.7, 5, 2] : i === 6 ? [6, -18.2, 22.4, 6, 3] : [0, null, null, 0, 0];
+  return { week_start: wk(i), tracked, days_due: tracked ? (i === 0 ? 3 : 6) : 0, in_service: 4,
+    tyre: { checked: tyre[0], avg_dev_pct: tyre[1], avg_abs_dev_pct: tyre[2], affected: tyre[3], unsafe: tyre[4], in_scope: 6, missing: tracked ? 2 : null },
+    km: { expected: tracked ? (i === 0 ? 12 : 24) : 0, entered: tracked ? (i === 0 ? 9 : 24 - i * 4) : 0, deviations: 1, unexplained: i === 0 ? 1 : 0 },
+    fuel: { fills: 3 - (i % 2), litres: 120, cost: 11400, deviations: i === 0 ? 1 : 0, unexplained: 0, missing: tracked ? 1 : null } };
+};
+export const rpcCalls = [];
+const weekReport = p => {
+  const i = Math.round((monday - new Date(p + 'T00:00:00Z')) / (7 * 864e5)), k = K(i);
+  return { week_start: wk(i), week_end: iso(-6), due_through: k.tracked ? iso(0) : null, tracking_start: wk(3), is_current: i === 0,
+    kpis: k, prev: K(i + 1),
+    missing: !k.tracked ? [] : [
+      { kind: 'fuel', vehicle_id: 2, reg_no: V[1].reg_no, bus_id: 2, detail: 'last fill 20 Sep, 24 days without one (usually every 7.0)' },
+      { kind: 'km', vehicle_id: 3, reg_no: V[2].reg_no, bus_id: 3, count: 3, of: 3, dates: [], detail: '3 of 3 working days not entered' },
+      { kind: 'tyre', vehicle_id: 5, reg_no: V[4].reg_no, bus_id: null, detail: 'never checked' },
+      { kind: 'tyre', vehicle_id: 4, reg_no: V[3].reg_no, bus_id: 58, detail: '<img src=x onerror="window.__xss=1">' }],
+    deviations: i > 1 ? [] : [
+      { kind: 'tyre', vehicle_id: 1, reg_no: V[0].reg_no, bus_id: 1, date: iso(1), severity: 3, explained: null, estimated_spec: true, detail: 'unsafe · average −33% · worst −43%' },
+      { kind: 'km', vehicle_id: 2, reg_no: V[1].reg_no, bus_id: 2, date: iso(1), severity: 1, explained: false, detail: '12 km against a normal 49.0 km (-37.0 km)' },
+      { kind: 'fuel', vehicle_id: 1, reg_no: V[0].reg_no, bus_id: 1, date: iso(2), severity: 2, explained: true, reason: 'AC repair', detail: '3.1 km/L against a normal 4.9 (-36.7%)' }] };
+};
 
 const EMBED = { staff: ['staff_id', 'staff'], checkup_parts: ['part_id', 'checkup_parts'], vehicles: ['vehicle_id', 'vehicles'] };
 export const writes = [];
@@ -126,7 +159,10 @@ class Q {
   in(c, vs) { this.f.push(r => vs.includes(r[c])); return this; }
   is(c, v) { this.f.push(r => v === null ? r[c] == null : r[c] === v); return this; }
   not(c, op, v) { this.f.push(r => v === null ? r[c] != null : r[c] !== v); return this; }
-  or() { return this; }
+  // PostgREST or(): only the simple "col.eq.value,..." form is modelled; anything else passes through
+  or(expr) { const parts = String(expr).split(',').map(p => p.split('.'));
+    if (parts.every(p => p.length === 3 && p[1] === 'eq')) this.f.push(r => parts.some(([c, , v]) => String(r[c]) === v));
+    return this; }
   order(c, o = {}) { this.o.push([c, o.ascending !== false]); return this; }
   limit(n) { this.lim = n; return this; }
   range(a, b) { this.lim = b - a + 1; return this; }
@@ -154,11 +190,14 @@ class Q {
 }
 export const fakeDb = {
   from: t => new Q(t),
-  rpc: (name, args) => Promise.resolve(name === 'staff_tenure_report' ? { data: {
+  rpc: (name, args) => { rpcCalls.push([name, args]); return Promise.resolve(
+    name === 'fleet_week_trend' ? { data: Array.from({ length: args.p_weeks }, (_, j) => args.p_weeks - 1 - j).map(i => ({ week_start: wk(i), kpis: K(i) })), error: null }
+    : name === 'fleet_week_report' ? { data: weekReport(args.p_week), error: null }
+    : name === 'staff_tenure_report' ? { data: {
     staff: T.staff.find(s => s.id === args.p_staff), documents: [{ doc_type: 'Driving licence', doc_number: 'DL-TEST-1', expires_on: iso(-86), status: 'expired' }],
     complaints: [{ recorded_on: iso(9), raised_by: 'A parent', role: 'parent', category: 'Rash or unsafe driving', description: 'Drove fast near the school gate', status: 'open' }],
     tenures: [{ bus_id: 1, role: 'driver', from_date: null, to_date: null, days: null, km_run: 580, days_logged: 11, unexplained_extra_days: 1,
       fuel_litres: 240, fuel_cost: 22800, avg_kmpl: 4.71, fuel_deviations: 1, tyre_checks: 1, complaints: 1, complaints_open: 1 }] }, error: null }
-    : { data: null, error: { message: 'unknown rpc ' + name } }),
+    : { data: null, error: { message: 'unknown rpc ' + name } }); },
   storage: { from: () => ({ upload: async p => ({ data: { path: p }, error: null }), createSignedUrl: async () => ({ data: { signedUrl: 'about:blank' }, error: null }) }) },
 };

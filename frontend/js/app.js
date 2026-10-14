@@ -18,7 +18,6 @@ import "./planner.js";
 import "./reports.js";
 import "./buspage.js";
 import "./admission.js";
-import "./ask.js";
 import "./bulk.js";
 
 globalThis.SUPABASE_URL = 'https://ftlaicvkwmxkehlefeap.supabase.co';
@@ -167,13 +166,11 @@ document.querySelectorAll('nav button').forEach(btn=>btn.onclick=()=>{
   if(v==='dash')loadDashboard();
   if(v==='map')openRouteMap();
   if(v==='students')setTimeout(()=>map&&map.invalidateSize(),60);
-  if(v==='opt')renderOptimization();
   if(v==='fleet')renderFleet();
   if(v==='teachers')renderTeachers();
   if(v==='planner')renderPlanner();
   if(v==='bulk')renderBulk();
   if(v==='reports')renderReports();
-  if(v==='ask')renderAsk();
   if(v==='admission')renderAdmission();
   if(v==='buspage')renderBusPage();
 });
@@ -899,19 +896,7 @@ globalThis.repRoutePts = [];
                                                                                            
  
 
-/* ============ ASK (AI / GIS quick questions) ============ */
-globalThis.QUESTIONS = [
-  {q:'Which buses exceed capacity?',run:async()=>{const {data}=await db.from('bus_economics').select('bus_id,students,capacity').order('bus_id');
-    const over=(data||[]).filter(r=>r.students>r.capacity);return table(['bus_id','students','capacity'],over.map(r=>({...r})),over.length?'':'No bus is over capacity.');}},
-  {q:'Students within 2 km of a bus’s route…',ask:'Bus number',run:async(bus)=>{const {data,error}=await db.rpc('students_near_bus_route',{p_bus:parseInt(bus,10),p_metres:2000});
-    if(error)return '<div class="note">'+esc(error.message)+'</div>';return table(['sr_no','student_name','current_bus','metres_from_route'],data||[],'None found.');}},
-  {q:'Which temporary buses expire tomorrow?',run:async()=>{const {data}=await db.from('alerts').select('*').eq('kind','temp_ending');return table(['subject','detail'],data||[],'None expiring tomorrow.');}},
-  {q:'Nearest buses to a location…',ask:'lat,lon (e.g. 27.60,75.14)',run:async(v)=>{const [la,lo]=v.split(',').map(Number);const {data,error}=await db.rpc('nearest_buses_to_point',{p_lat:la,p_lon:lo,p_n:5});if(error)return esc(error.message);return table(['bus_id','km','riders','capacity'],data||[]);}},
-  {q:'Duplicate / shared pickup locations',run:async()=>{const {data}=await db.rpc('duplicate_pickup_locations');return table(['n','students'],(data||[]).slice(0,50),'None.');}},
-  {q:'Suggest where to move students off an overloaded bus…',ask:'Bus number',run:async(bus)=>{const {data,error}=await db.rpc('students_near_bus_route',{p_bus:parseInt(bus,10),p_metres:1500});
-    if(error)return esc(error.message);
-    return '<div class="note" style="margin-bottom:8px">Students of other buses within 1.5 km of Bus '+esc(bus)+'’s route — candidates to absorb its overflow, or to move its students onto:</div>'+table(['sr_no','student_name','current_bus','metres_from_route'],(data||[]).slice(0,40),'None nearby.');}},
-];
+
                                                                                                              
                                                                                                                                                                                                                                                                                                                                           
 /* ============ ADMISSION WIZARD / GEOGRAPHIC SUGGESTIONS ============ */
@@ -1008,10 +993,7 @@ globalThis.adReady = false;
                                                                                      
  
 
-// small gazetteer of Sikar-area places so "near Piprali" resolves without a geocoding key
-globalThis.PLACES = {piprali:[27.610,75.146],'radha kishanpura':[27.60,75.16],nawalgarh:[27.85,75.27],
-  fatehpur:[27.99,74.96],reengus:[27.36,75.60],'sikar city':[27.61,75.14],khatushyamji:[27.39,75.42],
-  ramgarh:[27.25,75.17],losal:[27.40,74.92],dhod:[27.50,75.13],palsana:[27.42,75.24]};
+
                      
                                  
                                         
@@ -1089,4 +1071,4 @@ async function openFromUrl(){
 }
 globalThis.openFromUrl = openFromUrl;
 
-Object.assign(globalThis, { $, CSV_HINTS, GOOGLE_MAPS_API_KEY, PLACES, QUESTIONS, SUPABASE_KEY, SUPABASE_URL, adReady, admap, adpin, allMaps, buses, checkedBuses, colorOf, csvKind, csvRows, current, db, esc, googleFailed, googleLayers, googleReady, map, mapLayers, mapReady, pin, repHeat, repHeatMode, repMap, repRoutePts, repStudentPts, routeMap, rs, rupee, school, stimer, ttimer });
+Object.assign(globalThis, { $, CSV_HINTS, GOOGLE_MAPS_API_KEY, SUPABASE_KEY, SUPABASE_URL, adReady, admap, adpin, allMaps, buses, checkedBuses, colorOf, csvKind, csvRows, current, db, esc, googleFailed, googleLayers, googleReady, map, mapLayers, mapReady, pin, repHeat, repHeatMode, repMap, repRoutePts, repStudentPts, routeMap, rs, rupee, school, stimer, ttimer });

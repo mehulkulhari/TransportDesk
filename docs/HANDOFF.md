@@ -70,8 +70,8 @@ sql/               tables, views, functions, policies, reports — the source of
   ARCHIVED.md      what was moved out of the live schema on 2026-09-03, and why
 supabase/          config and migrations
 python/            coordinate and routing helpers
-tests/fleet/       regression tests for the Fleet screens (64 checks, no login needed)
-tests/studentlist/ regression tests for Reports -> Bus-wise list and its CSV (20 checks)
+tests/fleet/       regression tests for the Fleet screens and the dashboard's fleet week (94 checks, no login needed)
+tests/studentlist/ regression tests for Reports -> Bus-wise list, its CSV, and the Optimization tab (28 checks)
 docs/              this file, FLEET.md (the fleet module), ARCHITECTURE.md (how it is built and why),
                    DOMAIN_RULES.md (rules not in the code), ANALYSIS_METHODS.md
                    (how figures are measured), OPERATIONS.md (data-entry rule
@@ -139,7 +139,7 @@ Open items, roughly in priority order:
    any cost figure that uses them is quoted again. Compare `bus_details.vehicle_no` against
    the plate in each KML filename.
 9. **Fleet module inputs still outstanding** — real placard tyre pressures (every spec is
-   still an estimate), the school's own checkup parts list, time-based service intervals,
+   still an estimate), the school's own checkup parts list, the date of each vehicle's last service,
    and the two spare buses. Historical fuel and kilometre logs were deliberately not loaded.
    See `docs/FLEET.md` §8.
 10. **`buses.mileage` is keyed by route, not vehicle.** When a vehicle changes route its

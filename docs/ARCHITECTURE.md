@@ -12,7 +12,7 @@ Companion documents: `HANDOFF.md` (getting started), `DOMAIN_RULES.md` (business
 
 ```
 Browser (static files, no build step)
-  index.html  — one page, 14 views, all present in the DOM at once
+  index.html  — one page, 12 views, all present in the DOM at once
   js/*.js     — ES modules, loaded natively by the browser
       │
       │  supabase-js over HTTPS (PostgREST + Auth)
@@ -33,7 +33,7 @@ keep running.
 
 ## 2. Frontend
 
-**One page, many views.** `index.html` contains all 14 views as `<section class="view">`
+**One page, many views.** `index.html` contains all 12 views as `<section class="view">`
 elements. Navigation toggles a single `on` class — see `app.js:162-164`. There is no
 client-side router; `js/router.js` is a two-line stub kept only so imports resolve.
 
@@ -45,7 +45,7 @@ history handling would add moving parts without removing any.
 | Module | Lines | Responsibility |
 | --- | --- | --- |
 | `app.js` | 1092 | view switching, shared globals, search, CSV import, reports |
-| `optimization.js` | 755 | Round-1 optimisation page — the largest feature |
+| `optimization.js` | 755 | Round-1 optimisation page — the largest feature; shown under Reports → Optimization since Oct 2026 |
 | `maps.js`, `mapfocus.js` | 452 | Leaflet setup, route drawing, focusing a bus |
 | `students.js` | 280 | student editor, map pin, coordinate safety |
 | `planner.js` | 215 | route planner with live Directions |

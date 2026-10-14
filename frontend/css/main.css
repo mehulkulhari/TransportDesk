@@ -141,8 +141,6 @@ summary::before{content:'+';display:inline-block;width:16px;color:var(--signal);
    whole row and pushes the colour dot, name and rider count onto their own lines */
 .legchk{flex:none;cursor:pointer;width:auto;min-width:0;margin:0}
 .mapctl{position:absolute;bottom:14px;left:10px;z-index:600;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-m);padding:7px;display:flex;gap:6px;box-shadow:var(--sh-1)}
-.qbtn{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-s);padding:10px 12px;margin-bottom:7px;transition:border-color var(--tr),box-shadow var(--tr)}
-.qbtn:hover{border-color:var(--signal);box-shadow:var(--sh-1)}
 .roundswitch{display:flex;background:#0d1722;border:1px solid #2a3f53;border-radius:8px;padding:2px;margin:0 10px 0 8px;flex:none}
 .roundswitch button{background:transparent;color:#9fb0c0;border:none;padding:5px 12px;border-radius:6px;font-size:12px;font-weight:700;letter-spacing:.02em}
 .roundswitch button:hover{color:#fff}
@@ -240,6 +238,43 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .vcard .hd b{font-size:13.5px}.vcard .hd .mono{font-size:11px;color:var(--slate)}
 .vcard dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:8px 0 0;font-size:12px}
 .vcard dt{color:var(--slate)}.vcard dd{margin:0;text-align:right}
+
+/* The fleet week (dashboard). Chart marks follow the dataviz spec: 2px line, r>=4 dots
+   with a surface ring, hairline solid grid, one series per chart. */
+.wk{--viz-1:#2a78d6;--viz-grid:var(--edge-soft);--viz-axis:var(--edge)}
+.wkbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.wkbar label{margin:0}.wkbar select{width:auto;min-width:230px}
+.wkcards{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.wkstat .lbl{display:block;margin-bottom:4px}
+.wkstat b{font-variant-numeric:normal}
+.wkstat .sub,.wkstat .delta{display:block;text-transform:none;letter-spacing:0;font-size:12px;margin-top:3px}
+.wkstat .delta i{font-style:normal;font-size:10px}.wkstat .delta em{font-style:normal;color:var(--slate)}
+.wkstat .delta.good{color:var(--ok)}.wkstat .delta.bad{color:var(--stop)}.wkstat .delta.flat{color:var(--faint)}
+.wkfoot{margin:8px 0 14px;max-width:900px}
+.wkcharts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:8px}
+.wkchart{margin:0;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r-m);padding:10px 12px 6px;box-shadow:var(--sh-1);min-width:0}
+.wkchart figcaption{font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:2px}
+.wkchart .plot{position:relative;min-width:0}
+.wkchart svg{display:block;overflow:visible;outline:none}
+.wkchart svg:focus-visible{outline:2px solid var(--signal);outline-offset:2px;border-radius:4px}
+.wkchart .grid{stroke:var(--viz-grid);stroke-width:1}
+.wkchart .zero{stroke:var(--viz-axis);stroke-width:1}
+.wkchart .tick{font-size:10.5px;fill:var(--slate);font-variant-numeric:tabular-nums}
+.wkchart .vlab{font-size:11.5px;font-weight:600;fill:var(--ink)}
+.wkchart .empty{font-size:12px;fill:var(--faint)}
+.wkchart .ln{fill:none;stroke:var(--viz-1);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.wkchart .dot{fill:var(--viz-1);stroke:var(--panel);stroke-width:2}
+.wkchart .dot.sel{stroke:var(--ink);stroke-width:2}
+.wkchart .selband{fill:var(--signal-soft)}
+.wkchart .xhair{stroke:var(--slate);stroke-width:1}
+.wkchart .hit{fill:transparent;cursor:pointer}
+.wkchart .tip{position:absolute;top:-6px;pointer-events:none;background:var(--ink);color:#fff;border-radius:6px;padding:5px 9px;font-size:11.5px;white-space:nowrap;box-shadow:var(--sh-2);z-index:3}
+.wkchart .tip b{display:block;font-size:13px}.wkchart .tip span{color:#c9d3dd}
+.wktable{margin:4px 0 16px}.wktable summary{cursor:pointer;font-size:13px;color:var(--sky);margin-bottom:6px}
+.wklists{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+@media (max-width:900px){.wklists{grid-template-columns:minmax(0,1fr)}}
+.wkh{margin:4px 0 10px;font-size:15px}
+.wk .loading{opacity:.5;transition:opacity var(--tr)}
 
 .seg{display:inline-flex;border:1px solid var(--edge);border-radius:var(--r-s);overflow:hidden;background:var(--panel)}
 .seg button{border:none;border-radius:0;background:transparent;padding:5px 10px;font-size:12px;color:var(--slate);border-right:1px solid var(--edge)}

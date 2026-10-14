@@ -7,9 +7,10 @@
 <nav style="display:none"><button data-view="fleet" id="navFleet">Fleet</button></nav>
 <section class="view on" id="v-fleet" style="height:auto"><div class="pad" id="fleetBody"></div></section>
 <div id="toast"></div>
+<div id="wkHost" style="width:1000px;padding:12px"></div>
 <pre id="out" style="position:fixed;right:0;bottom:0;max-height:40vh;overflow:auto;background:#101c29;color:#cfe;font-size:11px;margin:0;padding:8px;z-index:99;max-width:48vw;white-space:pre-wrap"></pre>
 <script type="module">
-import { fakeDb, writes } from './fakedb.js';
+import { fakeDb, writes, rpcCalls } from './fakedb.js';
 globalThis.$ = id => document.getElementById(id);
 globalThis.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 globalThis.rs = n => '₹' + Number(n || 0).toLocaleString('en-IN');
@@ -20,6 +21,7 @@ window.confirm = () => true; window.open = () => null;
 const errors = []; window.addEventListener('error', e => errors.push(String(e.message))); window.addEventListener('unhandledrejection', e => errors.push('rejection: ' + (e.reason?.message || e.reason)));
 await import('../../frontend/js/maintenance.js');
 const { renderFleet } = await import('../../frontend/js/fleet.js');
+const { renderFleetWeek } = await import('../../frontend/js/fleet_week.js');
 // installed after the imports: loading utils.js registers the real toast on globalThis
 globalThis.toast = (m, k) => toasts.push([k || 'info', m]);
 $('navFleet').onclick = () => renderFleet();
@@ -90,7 +92,22 @@ await renderFleet('km'); await wait(300);
 const kr2 = [...pane().querySelectorAll('#kmSheet tbody tr')].find(tr => tr.dataset.v === '2');
 type(kr2.querySelector('.kmIn'), '1'); await wait(30);
 check(/lower than last/i.test(kr2.querySelector('.live').innerText), 'a reading below the last one is flagged');
-check(/Days with extra running/.test($('kmExtra').innerText) && $('kmExtra').querySelector('.addWhy'), 'extra-running list offers a reason after the fact');
+check(/Days off normal/.test($('kmExtra').innerText) && $('kmExtra').querySelector('.addWhy'), 'days-off-normal list offers a reason after the fact');
+check($('kmExtra').querySelectorAll('tbody tr').length === 1, `only days flagged above or below normal are listed (${$('kmExtra').querySelectorAll('tbody tr').length})`);
+const kr3 = [...pane().querySelectorAll('#kmSheet tbody tr')].find(tr => tr.dataset.v === '3');
+const last3 = +kr3.children[2].firstChild.textContent.replace(/\D/g, '');
+type(kr3.querySelector('.kmIn'), String(last3 + 10)); await wait(30);
+check(!kr3.querySelector('.kmWhy').hidden && /-39/.test(kr3.querySelector('.live').innerText), `a day far below normal (10 km vs ~49) also asks for a reason: ${kr3.querySelector('.live').innerText}`);
+type(kr3.querySelector('.kmIn'), String(last3 + 45)); await wait(30);
+check(kr3.querySelector('.kmWhy').hidden, 'a normal day (45 km) does not');
+check(/Test holiday/.test($('kmOff').innerText) && !/Removed earlier/.test($('kmOff').innerText), 'holidays list shows active days off only');
+$('offOn').value = '2026-10-20'; $('offTo').value = '2026-10-24'; $('offWhy').value = 'Diwali vacation';
+n = writes.length; $('offAdd').click(); await wait(200);
+const ow = writes.slice(n).find(w => w.table === 'fleet_off_days');
+check(ow && ow.op === 'upsert' && ow.payload.length === 5 && ow.payload.every(d => d.active && d.reason === 'Diwali vacation'), `a date range adds one row per day (${ow?.payload.length})`);
+$('kmOff').querySelector('.offRm').click(); await wait(200);
+const rw = writes.filter(w => w.table === 'fleet_off_days').pop();
+check(rw.op === 'update' && rw.payload.active === false, 'removing a day off deactivates it, never deletes');
 
 log('\n-- fuel');
 await renderFleet('fuel'); await wait(300);
@@ -182,6 +199,44 @@ const mk = pane().querySelector('#vhReg tr[data-id="1"] [data-k="make"]'); type(
 n = writes.length; $('vhSave').click(); await wait(300);
 const vw = writes.slice(n);
 check(vw.length === 1 && vw[0].payload.make === 'Eicher Skyline', `editing only the make writes one update, no route churn (${vw.length} writes)`);
+
+log('\n-- fleet week (dashboard)');
+const opened = [];
+await renderFleetWeek($('wkHost'), t => opened.push(t)); await wait(300);
+check($('wkSel').options.length === 12 && /^This week/.test($('wkSel').options[0].text), `week filter lists 12 weeks, newest first: "${$('wkSel').options[0].text}"`);
+check($('wkTiles').querySelectorAll('.wkstat').length === 6, 'six KPI tiles');
+check(/−12\.1%/.test($('wkTiles').innerText), 'average tyre deviation shown signed (−12.1%)');
+const devTile = $('wkTiles').querySelector('.wkstat');
+check(devTile.querySelector('.delta.good') && /3\.7 pts closer to recommended/.test(devTile.innerText), 'closer to spec than last week (16.0 vs 19.7 away) reads as better');
+check(/of 5 checked · 1 at unsafe/.test($('wkTiles').innerText), 'buses off spec: count of checked, unsafe named');
+check(/75%/.test($('wkTiles').innerText) && /9 of 12 expected/.test($('wkTiles').innerText), 'daily km entry rate: 9 of 12 = 75%');
+check(/estimated/.test($('wkHost').querySelector('.wkfoot').innerText), 'the estimated-spec caveat sits under the tiles');
+check($('wkCharts').querySelectorAll('svg').length === 3 && $('wkCharts').querySelectorAll('.ln').length === 3, 'three small trend charts, one series each');
+check($('wkCharts').querySelectorAll('[data-s="dev"] .dot').length === 3, 'tyre chart plots only weeks that had readings (3)');
+const lists = $('wkLists');
+check(/Data entry missing \(4\)/.test(lists.innerText) && /Deviation found \(3\)/.test(lists.innerText), 'two separate sections: missing (4) and deviation (3)');
+check(lists.querySelectorAll('section:first-child .agroup').length === 3, 'missing entries grouped by km / tyre / fuel');
+// textContent, not innerText: the km and fuel groups start collapsed
+check(/Reason needed/i.test(lists.textContent) && /Reason given/i.test(lists.textContent), 'deviations say whether a reason was recorded');
+check(/estimated spec/.test(lists.innerText), 'a tyre deviation against an estimated spec says so');
+check(!$('wkHost').querySelector('img') && !window.__xss, 'details from the database are escaped');
+check(!/no odometer reading/.test($('wkOther').innerText) && /Documents expired/.test($('wkOther').innerText), 'other alerts exclude missing-entry and deviation kinds');
+lists.querySelector('.go-tab[data-tab="km"]').click();
+check(opened.pop() === 'km', '"Open daily km" opens the Daily km tab');
+const sel = $('wkSel'); sel.value = sel.options[1].value; sel.dispatchEvent(new Event('change')); await wait(200);
+check(rpcCalls.filter(c => c[0] === 'fleet_week_report').pop()[1].p_week === sel.options[1].value, 'choosing a week fetches that week');
+check(/−15\.3%/.test($('wkTiles').innerText), 'last week shows its own figure (−15.3%)');
+check($('wkCharts').querySelector('[data-s="dev"] .dot.sel'), 'the chosen week is highlighted on the charts');
+sel.value = sel.options[6].value; sel.dispatchEvent(new Event('change')); await wait(200);
+check(/Not tracked yet/.test($('wkNote').textContent) && /Not tracked yet/.test(lists.innerText), 'weeks before the Fleet tab say "not tracked", not "missing"');
+check(/−18\.2%/.test($('wkTiles').innerText), 'tyre figures still show for an untracked week (audit readings)');
+const svg = $('wkCharts').querySelector('svg'); svg.focus();
+svg.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await wait(20);
+const tip = svg.parentElement.querySelector('.tip');
+check(!tip.hidden && /%|no figure/.test(tip.innerText), `keyboard reads each week: "${tip.innerText.replace(/\n/g, ' · ')}"`);
+svg.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await wait(200);
+check($('wkSel').value === sel.options[5].value, 'Enter on a chart selects that week');
+check($('wkTable').querySelectorAll('tbody tr').length === 12, 'table view has all 12 weeks');
 
 log(`\nERRORS: ${errors.length ? errors.join(' | ') : 'none'}`);
 const f = out.filter(l => l.includes('FAIL')).length, p = out.filter(l => l.includes('PASS')).length;
