@@ -71,6 +71,7 @@ sql/               tables, views, functions, policies, reports — the source of
 supabase/          config and migrations
 python/            coordinate and routing helpers
 tests/fleet/       regression tests for the Fleet screens (64 checks, no login needed)
+tests/studentlist/ regression tests for Reports -> Bus-wise list and its CSV (20 checks)
 docs/              this file, FLEET.md (the fleet module), ARCHITECTURE.md (how it is built and why),
                    DOMAIN_RULES.md (rules not in the code), ANALYSIS_METHODS.md
                    (how figures are measured), OPERATIONS.md (data-entry rule

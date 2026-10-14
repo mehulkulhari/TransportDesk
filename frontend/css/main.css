@@ -253,7 +253,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .reasonrow td{background:var(--signal-soft)!important}
 .report{max-width:900px}
 .report h2{margin:0}.report .sub{color:var(--slate);margin:2px 0 16px}
-@media print{header,nav,.subnav,#roundStrip,.noprint{display:none!important}.view{display:none!important}#v-fleet{display:block!important;overflow:visible}main{overflow:visible}body{background:#fff}.fcard{box-shadow:none}}
+/* print whichever view is open, at full length, without the app chrome */
+@media print{header,nav,.subnav,#roundStrip,.noprint,#repTabs,.actions,#slColsBox{display:none!important}
+  .view:not(.on){display:none!important}.view.on{display:block!important;overflow:visible;height:auto}
+  html,body,#app,main{height:auto!important;overflow:visible!important}body{background:#fff}.fcard{box-shadow:none}
+  th{position:static}}
 input.tone-ok{border-color:#9fd6bb;background:var(--ok-bg)}
 input.tone-warn{border-color:#f0cf7a;background:var(--signal-soft)}
 input.tone-stop{border-color:#eba59b;background:var(--stop-bg);color:var(--stop);font-weight:600}

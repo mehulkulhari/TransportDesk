@@ -1,0 +1,89 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Bus-wise list tests</title>
+<link rel="stylesheet" href="../../frontend/css/main.css"></head>
+<body style="overflow:auto">
+<!-- Regression tests for Reports -> Bus-wise list. All data below is fictitious.
+     Run: python -m http.server 8012 (repo root), open http://localhost:8012/tests/studentlist/ -->
+<div class="pad"><div id="repOut"></div></div><div id="toast"></div>
+<pre id="out" style="background:#101c29;color:#cfe;font-size:11px;padding:8px;white-space:pre-wrap"></pre>
+<script type="module">
+const R = (round, bus, po, sr, name, extra = {}) => ({ round, bus_no: bus, transport_status: bus == null ? 'comes by self' : 'transport',
+  route_name: bus ? 'Route ' + bus : null, vehicle_no: bus ? 'TEST ' + String(bus).padStart(4, '0') : null, driver_name: bus ? 'Driver ' + bus : null,
+  driver_phone: bus ? '90000000' + String(bus).padStart(2, '0') : null, conductor_name: null, conductor_phone: null,
+  planned_pickup_order: po, sr_no: sr, student_name: name, class: 'V', section: 'A', gender: 'M', dob: '2015-04-01',
+  father_name: 'Father of ' + name, mother_name: null, father_phone: '98' + sr.padStart(8, '0'), mother_phone: null,
+  home_address: 'Ward 4, "Gali" no. 2, Sikar', pickup_note: null, pickup_latitude: 27.6, pickup_longitude: 75.1,
+  pickup_map_link: 'https://www.google.com/maps?q=27.6,75.1', on_temporary_bus: false, permanent_bus_no: null,
+  on_temporary_address: false, temporary_until: null, temporary_reason: null, road_km_to_school: 5.2, road_min_to_school: 14,
+  transport_fee: 12000, fee_year: '2026-27', admission_date: '2020-04-01', ...extra });
+const ROWS = [];
+// 1,250 Round-1 children over 25 buses so the 1,000-row paging is exercised
+for (let i = 0; i < 1250; i++) ROWS.push(R(1, 1 + (i % 25), Math.floor(i / 25) + 1, String(10000 + i), 'Child ' + i));
+ROWS.push(R(1, 3, 99, '20001', 'Temp Kid', { on_temporary_bus: true, permanent_bus_no: 7, temporary_reason: 'Mother unwell' }));
+ROWS.push(R(1, 4, 98, '20002', 'Pinless Kid', { pickup_latitude: null, pickup_longitude: null, pickup_map_link: null }));
+ROWS.push(R(1, null, null, '20003', 'Walker Kid'));
+for (let i = 0; i < 30; i++) ROWS.push(R(2, 40 + (i % 3), i + 1, String(30000 + i), 'Small ' + i));
+const pages = [];
+globalThis.db = { from: t => { const q = { o: [], r: [0, 1e9] }; const api = {
+  select: () => api, order: () => api, range: (a, b) => { q.r = [a, b]; return api; },
+  then: (res) => { pages.push(q.r); const s = ROWS.slice().sort((a, b) => a.round - b.round || (a.bus_no ?? 1e4) - (b.bus_no ?? 1e4) || (a.planned_pickup_order ?? 1e4) - (b.planned_pickup_order ?? 1e4));
+    return Promise.resolve({ data: s.slice(q.r[0], q.r[1] + 1), error: null }).then(res); } }; return api; } };
+globalThis.$ = id => document.getElementById(id);
+globalThis.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const toasts = []; globalThis.toast = (m, k) => toasts.push([k, m]);
+try { localStorage.removeItem('slCols'); } catch (e) {}
+let blob = null, fname = null;
+URL.createObjectURL = b => { blob = b; return 'blob:x'; }; URL.revokeObjectURL = () => {};
+const realCreate = document.createElement.bind(document);
+document.createElement = tag => { const el = realCreate(tag); if (tag === 'a') el.click = () => { fname = el.download; }; return el; };
+const out = [], log = s => { out.push(s); $('out').textContent = out.join('\n'); };
+const check = (c, m) => log((c ? '  PASS ' : '  FAIL ') + m);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const csvRows = async () => { const t = (await blob.text()).replace(/^﻿/, ''); const rows = []; let row = [], f = '', inQ = false;
+  for (let i = 0; i < t.length; i++) { const c = t[i];
+    if (inQ) { if (c === '"' && t[i + 1] === '"') { f += '"'; i++; } else if (c === '"') inQ = false; else f += c; }
+    else if (c === '"') inQ = true; else if (c === ',') { row.push(f); f = ''; } else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; } else f += c; }
+  row.push(f); rows.push(row); return rows; };
+
+const { renderStudentList } = await import('../../frontend/js/studentlist.js');
+await renderStudentList($('repOut')); await wait(100);
+check(pages.length === 2 && pages[1][0] === 1000, `pages through all rows (${pages.length} requests)`);
+check(/1,252 students on 25 buses/.test($('slCount').textContent), `Round 1 count: "${$('slCount').textContent}" (self-transport excluded by default)`);
+check($('slTable').querySelectorAll('.fcard').length === 25, 'one block per bus');
+check(/Temporary — usual bus 7/.test($('slTable').textContent), 'temporary bus flagged with the usual bus');
+check(/No pickup point/.test($('slTable').textContent), 'missing pickup point flagged');
+check(!/Walker Kid/.test($('slTable').textContent), 'self-transport hidden by default');
+$('slSelf').click(); await wait(30);
+check(/Comes by self/.test($('slTable').textContent) && /Walker Kid/.test($('slTable').textContent), 'checkbox brings self-transport back as its own group');
+
+$('slCsv').click(); await wait(30);
+let rows = await csvRows();
+check(rows.length === 1254 && rows[0][0] === 'Round', `CSV has header + 1,253 rows (${rows.length})`);
+check(rows[0].length === 26, `default columns: bus & crew 9 + student 8 + parents 4 + address 5 = ${rows[0].length}`);
+check(/round-1_all-buses/.test(fname), `file name says what it holds: ${fname}`);
+const addr = rows[0].indexOf('Home address');
+check(rows[1][addr] === 'Ward 4, "Gali" no. 2, Sikar', 'commas and quotes in addresses survive the CSV');
+const head = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
+check(head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf, 'starts with a UTF-8 byte-order mark so Excel reads Hindi names correctly');
+
+document.querySelector('#slColsBox input[data-g="parents"]').click();
+document.querySelector('#slColsBox input[data-g="fee"]').click();
+document.querySelector('#slColsBox input[data-g="temp"]').click(); await wait(10);
+$('slBus').value = '3'; $('slBus').dispatchEvent(new Event('change')); await wait(30);
+check(/51 students on 1 bus/.test($('slCount').textContent), `bus filter: "${$('slCount').textContent}"`);
+$('slCsv').click(); await wait(30); rows = await csvRows();
+check(!rows[0].includes('Father phone') && rows[0].includes('Annual transport fee'), 'column chooser drops and adds groups');
+check(rows.slice(1).every(r => r[1] === '3'), 'only bus 3 exported');
+const tmp = rows.find(r => r.includes('Temp Kid')), ti = rows[0].indexOf('On a temporary bus');
+check(ti > 0 && tmp && tmp[ti] === 'Yes' && rows[1][ti] === 'No', 'booleans exported as Yes / No');
+check(/bus-3/.test(fname), `file name names the bus: ${fname}`);
+
+document.querySelector('#slRound [data-r="2"]').click(); await wait(30);
+check(/30 students on 3 buses/.test($('slCount').textContent), `Round 2 resets the bus filter: "${$('slCount').textContent}"`);
+document.querySelector('#slRound [data-r="both"]').click(); await wait(30);
+check(/Round 2/.test($('slTable').textContent) && /Round 1/.test($('slTable').textContent), 'both rounds label each block');
+$('slQ').value = 'small 2'; $('slQ').dispatchEvent(new Event('input')); await wait(260);
+check($('slTable').querySelectorAll('tbody tr').length === 11, `search narrows the list (${$('slTable').querySelectorAll('tbody tr').length} rows for "small 2")`);
+
+const f = out.filter(l => l.includes('FAIL')).length, p = out.filter(l => l.includes('PASS')).length;
+log(`RESULT: ${p} passed, ${f} failed`); window.__done = { pass: p, fail: f, out: out.join('\n') };
+</script></body></html>

@@ -63,6 +63,23 @@ SELECT refresh_fleet_assign();
 
 Wiring this into the capacity save action is a good first task for a new developer.
 
+### Bus-wise student lists
+
+**Reports → Bus-wise list** shows every child grouped by bus for Round 1, Round 2 or
+both, with the driver and conductor at the head of each bus. **Download CSV** exports
+whatever is on screen — one bus or the whole fleet — and the *Columns in the CSV* panel
+chooses which groups go in: bus and crew, student, parents and phones, address and
+pickup point, temporary arrangements, fee and distance. The file opens directly in Excel,
+Hindi names included. Students who come by self are left out unless ticked.
+
+Export from here rather than keeping a spreadsheet copy: the list is read live, so it is
+correct at the moment it is downloaded and stale from then on. Treat any exported file as
+a snapshot — it holds parents' phone numbers and home addresses, so it should not be
+forwarded beyond the people who need it.
+
+The list is defined once, in the `bus_student_list` view
+(`supabase/migrations/20261014000000_bus_student_list.sql`).
+
 ## 2. Maintenance routine
 
 Ordered by how quickly the thing being checked turns into a real problem.
