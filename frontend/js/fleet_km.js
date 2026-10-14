@@ -21,7 +21,7 @@ export async function renderKm(el) {
         appear as you type. Once a bus has ${NEED_DAYS} normal days on record, a day well above its normal
         (more than 15%) or well below it (under 60%) opens a <b>reason</b> box — that day keeps alerting until a reason is given.</p>
       <div class="frow" style="max-width:640px">${auditFields('km', { dateLabel: 'Reading date' })}
-        <div class="field"><label for="kmFind">Find a bus</label><input id="kmFind" placeholder="Bus number or registration"/></div></div>
+        <div class="field"><label for="kmFind">Find a bus</label><input id="kmFind" placeholder="Bus number, e.g. 12"/></div></div>
       <div id="kmSheet"><div class="hint">Loading…</div></div>
       <div class="actions"><button class="b-primary" id="kmSave">Save readings</button><span class="note" id="kmCount"></span></div></div>
     <div class="fcard" id="kmExtra"></div>
@@ -55,11 +55,11 @@ async function sheet(vs) {
     <tbody>${vs.map(v => { const c = CTX[v.id];
       const avg = c.n >= NEED_DAYS ? `${c.avg.toFixed(0)} km` : `<span class="muted">${c.n}/${NEED_DAYS} days</span>`;
       const last = c.prev ? `${n0(c.prev.reading_km)}<span class="audit">${fmtD(c.prev.recorded_on)}</span>` : '<span class="muted">first reading</span>';
-      if (c.mine) return `<tr data-v="${v.id}" data-q="${esc((v.bus_id ?? '') + ' ' + v.reg_no).toLowerCase()}" class="done">
+      if (c.mine) return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}" class="done">
         <td>${esc(vLabel(v))}</td><td>${c.mine.bus_id ?? '—'}</td><td class="num">${last}</td>
         <td class="num"><b>${n0(c.mine.reading_km)}</b><span class="audit">entered${c.mine.provided_by ? ' · ' + esc(c.mine.provided_by) : ''}</span></td>
         <td class="num">${c.mine.km_run ?? '—'}</td><td class="num">${avg}</td><td>${c.mine.reason ? esc(c.mine.reason) : ''}</td></tr>`;
-      return `<tr data-v="${v.id}" data-q="${esc((v.bus_id ?? '') + ' ' + v.reg_no).toLowerCase()}">
+      return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}">
         <td>${esc(vLabel(v))}</td><td>${routeSelect('kmr' + v.id, v.bus_id, { blank: v.is_spare ? 'Pick route…' : 'No route' })}</td>
         <td class="num">${last}</td>
         <td class="num"><input type="number" min="0" step="1" class="kmIn" style="width:110px"/></td>
@@ -99,7 +99,7 @@ async function save(el) {
   for (const tr of document.querySelectorAll('#kmSheet tbody tr:not(.done)')) {
     const inp = tr.querySelector('.kmIn'); if (!inp || inp.value === '') continue;
     const vid = +tr.dataset.v, v = vehicleById(vid), c = CTX[vid], route = $('kmr' + vid).value;
-    if (v.is_spare && !route) { toast(`Pick the route ${v.reg_no} covered`, 'bad'); $('kmr' + vid).focus(); return; }
+    if (v.is_spare && !route) { toast(`Pick the route ${vLabel(v)} covered`, 'bad'); $('kmr' + vid).focus(); return; }
     if (c.prev && +inp.value < +c.prev.reading_km &&
         !confirm(`${vLabel(v)}: ${inp.value} is lower than the last reading (${c.prev.reading_km}). Save it anyway?`)) { inp.focus(); return; }
     const why = tr.querySelector('.kmWhy');

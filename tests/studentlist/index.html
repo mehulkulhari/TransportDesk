@@ -51,6 +51,7 @@ await renderStudentList($('repOut')); await wait(100);
 check(pages.length === 2 && pages[1][0] === 1000, `pages through all rows (${pages.length} requests)`);
 check(/1,253 students on 25 buses/.test($('slCount').textContent), `Round 1 count: "${$('slCount').textContent}" (self-transport excluded by default)`);
 check($('slTable').querySelectorAll('.fcard').length === 25, 'one block per bus');
+check(!/TEST 00/.test($('slTable').textContent), 'buses are named by number; registration numbers are not shown');
 check(/Temporary — usual bus 7/.test($('slTable').textContent), 'temporary bus flagged with the usual bus');
 check(/No pickup point/.test($('slTable').textContent), 'missing pickup point flagged');
 check(!/Walker Kid/.test($('slTable').textContent), 'self-transport hidden by default');
@@ -60,7 +61,7 @@ check(/Comes by self/.test($('slTable').textContent) && /Walker Kid/.test($('slT
 $('slCsv').click(); await wait(30);
 let rows = await csvRows();
 check(rows.length === 1255 && rows[0][0] === 'Round', `CSV has header + 1,254 rows (${rows.length})`);
-check(rows[0].length === 26, `default columns: bus & crew 9 + student 8 + parents 4 + address 5 = ${rows[0].length}`);
+check(rows[0].length === 25 && !rows[0].includes('Vehicle no.'), `default columns: bus & crew 8 (no registration) + student 8 + parents 4 + address 5 = ${rows[0].length}`);
 check(/round-1_all-buses/.test(fname), `file name says what it holds: ${fname}`);
 const addr = rows[0].indexOf('Home address');
 check(rows[1][addr] === 'Ward 4, "Gali" no. 2, Sikar', 'commas and quotes in addresses survive the CSV');
@@ -68,7 +69,7 @@ const head = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
 check(head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf, 'starts with a UTF-8 byte-order mark so Excel reads Hindi names correctly');
 
 const { csvCell } = await import('../../frontend/js/utils.js');
-const ev = rows.find(r => r[10] === '20004'), col = n => rows[0].indexOf(n);
+const col = n => rows[0].indexOf(n), ev = rows.find(r => r[col('SR no.')] === '20004');
 check(ev && ev[col('Student')] === `'=HYPERLINK("http://example.invalid","click")`, `a formula in a name is neutralised: ${ev && ev[col('Student')]}`);
 check(ev && ev[col('Father')] === "'@SUM(A1)", 'a leading @ is neutralised');
 check(ev && ev[col('Father phone')] === '+919800000004', 'a phone like +91... is a plain number, so it is left alone');

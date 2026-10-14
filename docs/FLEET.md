@@ -43,7 +43,7 @@ entry is removed with `active = false` and stays in the record.
 
 | Tab | What it does | Rule that drives alerts |
 | --- | --- | --- |
-| **Overview** | every alert grouped by kind; a card per vehicle | — |
+| **Overview** | the fleet week: week filter, KPI tiles, trend graphs, and the alerts in three columns (data entry missing, deviation found, other), each group a closed heading until clicked; a card per vehicle, folded away | — |
 | **Tyres** | *Board* (each bus seen from above), *Recommended pressure* per vehicle, *Enter readings* for the whole fleet in one sheet | unsafe ≤ −30% or ≥ +25% of spec; off-pressure beyond ±10%; left/right on one axle ≥ 15% of spec (min 10 psi) apart; check due (entry missing) after **15 days** — buses carrying children and spares only, not parked buses |
 | **Daily km** | one odometer reading per bus each morning, the whole fleet in one sheet; **holidays** | after **5** normal days, a day > 115% of normal **and** > 5 km above it, or < 60% of normal **and** > 5 km below it (one-day gap only), needs a **reason**; a reading below the last is flagged; **missing** when a bus carrying children has no reading for a working day (Mon–Sat, not a holiday) after 11:00 |
 | **Fuel** | litres, price, bill amount, odometer at fill | mileage measured tank to tank; after **3** measured fills, a fill more than **15%** from normal *in either direction* needs a reason; **missing** when the gap since the last fill passes twice the bus's usual gap (kept between 7 and 21 days; 10 days until it has three gaps) |
@@ -63,9 +63,9 @@ functions (`tyre_dev`, `tyre_class`, `tyre_imbalanced`) shared by the live statu
 the weekly history. The screens mirror the same thresholds to give live feedback
 while typing, so **change a threshold in the view and in the screen together**.
 
-### The dashboard's fleet week
+### The fleet week (Fleet → Overview)
 
-The main Dashboard shows the fleet a week at a time (`frontend/js/fleet_week.js`,
+**Fleet → Overview** shows the fleet a week at a time (`frontend/js/fleet_week.js`,
 SQL in `20261014000100_fleet_entry_compliance.sql`). Every alert carries a
 `category`, and the two that matter day to day are kept apart because different
 people fix them:
@@ -90,7 +90,17 @@ weeks for the trend charts. The tiles: average tyre pressure deviation (signed, 
 the average distance from spec deciding *better* or *worse*) and buses off spec;
 km readings entered against expected; fuel fills; and the two list counts. Tyre
 figures are each bus's last reading of the week, against what are still mostly
-**estimated** specs — the dashboard says so.
+**estimated** specs — the page says so.
+
+For **this week** the three alert columns are the live alerts — everything open now,
+including a problem found earlier and not yet fixed (an unsafe tyre from the August
+audit stays until it is re-checked). For a **past week** they are that week's report.
+The main Dashboard shows only the three counts, each opening Fleet → Overview.
+
+**Buses are named by number, never by registration** ("Bus 12", "Spare 1"), on every
+screen and export. The registration lives only in **Fleet → Vehicles**, where it is
+recorded — documents and the RTO need it there. `vLabel()` in `fleetkit.js` is the one
+place a vehicle's display name is made.
 
 ### Why these particular rules
 
@@ -150,7 +160,7 @@ python -m http.server 8012
 
 Open `http://localhost:8012/tests/fleet/` (or start **Fleet tests** from
 `.claude/launch.json`). It renders all twelve tabs and exercises the save paths and
-validation rules, plus the dashboard's fleet week — 94 checks. Run it after any change to a fleet screen.
+validation rules, plus the Overview's fleet week — 103 checks. Run it after any change to a fleet screen.
 
 It tests the screens, not the SQL. The views were checked separately by inserting
 synthetic readings inside a transaction that rolled itself back.

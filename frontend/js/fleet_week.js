@@ -10,7 +10,7 @@
 // their thresholds with the live fleet_alerts view.
 
 import { alertGroups, bindAlertGroups } from './fleet.js';
-import { fmtD, n0, chip } from './fleetkit.js';
+import { fmtD, n0, chip, vehicles, vehicleById, vLabel } from './fleetkit.js';
 
 const WEEKS = 12;
 const MINUS = '−';
@@ -32,14 +32,15 @@ function weekLabel(ws, cur) {
 /** Render the whole section into `el`. `onOpen(tab)` opens a Fleet tab. */
 export async function renderFleetWeek(el, onOpen) {
   el.innerHTML = '<div class="hint">Loading the fleet week…</div>';
-  const [{ data: trend, error: e1 }, { data: other, error: e2 }] = await Promise.all([
+  const [{ data: trend, error: e1 }, { data: live, error: e2 }] = await Promise.all([
     db.rpc('fleet_week_trend', { p_weeks: WEEKS }),
-    db.from('fleet_alerts').select('*').eq('category', 'other')]);
+    db.from('fleet_alerts').select('*'),
+    vehicles()]);
   if (e1 || e2) { el.innerHTML = `<div class="note">Could not load the fleet week: ${esc((e1 || e2).message)}</div>`; return; }
   const T = (trend || []).map(r => ({ ws: r.week_start, k: r.kpis }));
   if (!T.length) { el.innerHTML = '<div class="note">No weeks to show.</div>'; return; }
   const cur = T[T.length - 1].ws;
-  const S = { T, cur, sel: cur, onOpen, el };
+  const S = { T, cur, sel: cur, onOpen, el, live: live || [] };
 
   el.innerHTML = `<div class="wk">
     <div class="wkbar"><label for="wkSel">Week</label>
@@ -48,10 +49,8 @@ export async function renderFleetWeek(el, onOpen) {
     <div id="wkTiles"></div>
     <div class="wkcharts" id="wkCharts"></div>
     <details class="wktable"><summary>Show the weekly numbers as a table</summary><div id="wkTable"></div></details>
-    <div class="fsplit wklists" id="wkLists"></div>
-    <h3 class="wkh">Other fleet alerts <span class="note">(today · documents, service, checkups, complaints)</span></h3>
-    <div id="wkOther">${alertGroups(other || [], { max: 15 })}</div></div>`;
-  bindAlertGroups($('wkOther'), onOpen);
+    <h3 class="wkh">Alerts <span class="note" id="wkListNote"></span></h3>
+    <div class="wkcols" id="wkLists"></div></div>`;
   $('wkTable').innerHTML = trendTable(T);
   $('wkSel').onchange = () => pick(S, $('wkSel').value);
   drawCharts(S);
@@ -69,10 +68,32 @@ async function pick(S, ws) {
   if (S.sel !== ws) return;                      // a later pick overtook this one
   ['wkTiles', 'wkLists'].forEach(id => $(id).classList.remove('loading'));
   if (error || !R) { $('wkTiles').innerHTML = `<div class="note">Could not load this week: ${esc(error?.message || 'no data')}</div>`; return; }
+  const A = alertsFor(R, S);
   $('wkNote').textContent = dueNote(R);
-  $('wkTiles').innerHTML = tiles(R);
-  $('wkLists').innerHTML = lists(R);
+  $('wkTiles').innerHTML = tiles(R, A);
+  $('wkListNote').textContent = R.is_current ? '· open now · click a heading to see the buses'
+    : `· in the week of ${short(R.week_start)} · click a heading to see the buses`;
+  $('wkLists').innerHTML = lists(R, A, S);
   bindAlertGroups($('wkLists'), S.onOpen);
+}
+
+// Which km / tyre / fuel bucket each live alert kind belongs to
+const AREA = { km_missing: 'km', tyre_check_due: 'tyre', fuel_missing: 'fuel', tyre_unsafe: 'tyre', tyre_pressure: 'tyre',
+  tyre_imbalance: 'tyre', km_unexplained: 'km', km_backwards: 'km', fuel_deviation: 'fuel' };
+
+/** The two lists for a week. This week they are the live alerts — everything open now,
+ *  including problems found earlier and not yet fixed. A past week is that week's report. */
+function alertsFor(R, S) {
+  if (R.is_current) {
+    const cat = c => S.live.filter(a => a.category === c);
+    const m = cat('entry_missing'), d = cat('deviation');
+    return { live: true, missing: m, devs: d, other: cat('other'),
+      nMissing: m.length, nDevs: d.length, byArea: (L, k) => L.filter(a => AREA[a.kind] === k).length,
+      unexplained: d.filter(a => a.kind === 'km_unexplained' || a.kind === 'fuel_deviation').length };
+  }
+  return { live: false, missing: R.missing, devs: R.deviations, other: S.live.filter(a => a.category === 'other'),
+    nMissing: R.missing.length, nDevs: R.deviations.length, byArea: (L, k) => L.filter(a => a.kind === k).length,
+    unexplained: R.deviations.filter(d => d.explained === false).length };
 }
 
 function dueNote(R) {
@@ -100,13 +121,11 @@ function tile(label, value, sub, dl, warn) {
     <span class="sub">${sub}</span>${dl || ''}</div>`;
 }
 
-function tiles(R) {
+function tiles(R, A) {
   const k = R.kpis, p = R.prev, t = k.tyre, pt = p.tyre;
   const notTracked = '<span class="delta flat">Not tracked before the Fleet tab started</span>';
   const kmPct = pct(k.km.entered, k.km.expected), kmPrev = pct(p.km.entered, p.km.expected);
-  const nMiss = R.missing.length, nDev = R.deviations.length;
-  const unexplained = R.deviations.filter(d => d.explained === false).length;
-  const byKind = (arr, kind) => arr.filter(x => x.kind === kind).length;
+  const areas = L => `km ${A.byArea(L, 'km')} · tyres ${A.byArea(L, 'tyre')} · fuel ${A.byArea(L, 'fuel')}`;
   // Distance from spec, not the signed figure, decides better or worse: -5% and +5% are equally off.
   const absNow = t.avg_abs_dev_pct, absPrev = pt.avg_abs_dev_pct;
   return `<div class="cards wkcards">
@@ -125,12 +144,12 @@ function tiles(R) {
     ${tile('Fuel fills logged', n0(k.fuel.fills),
       `${k.fuel.deviations} off normal mileage${k.fuel.cost ? ' · ' + rs(k.fuel.cost) : ''}`,
       `<span class="delta flat">${n0(p.fuel.fills)} the previous week</span>`)}
-    ${tile('Data entry missing', k.tracked ? n0(nMiss) : '—',
-      k.tracked ? `km ${byKind(R.missing, 'km')} · tyres ${byKind(R.missing, 'tyre')} · fuel ${byKind(R.missing, 'fuel')} buses` : 'Not tracked yet',
-      '', nMiss > 0)}
-    ${tile('Deviation found', n0(nDev),
-      `tyres ${byKind(R.deviations, 'tyre')} · km ${byKind(R.deviations, 'km')} · fuel ${byKind(R.deviations, 'fuel')}${unexplained ? ` · ${unexplained} need a reason` : ''}`,
-      '', nDev > 0)}
+    ${tile('Data entry missing', A.live || k.tracked ? n0(A.nMissing) : '—',
+      A.live || k.tracked ? `${A.live ? 'open now · ' : ''}${areas(A.missing)}` : 'Not tracked yet',
+      '', A.nMissing > 0)}
+    ${tile('Deviation found', n0(A.nDevs),
+      `${A.live ? 'open now · ' : ''}${areas(A.devs)}${A.unexplained ? ` · ${A.unexplained} need a reason` : ''}`,
+      '', A.nDevs > 0)}
   </div>
   <p class="note wkfoot">Tyre deviation is each bus's last reading of the week against its recommended pressure. Most
     recommended pressures are still <b>estimated</b> from tyre size until the placard values are entered (Fleet → Tyres),
@@ -141,30 +160,39 @@ function tiles(R) {
 const MISSING = { km: ['Daily km not entered', 'km'], tyre: ['Tyre pressure not checked in 15 days', 'tyres'], fuel: ['No fuel fill logged for too long', 'fuel'] };
 const DEVS = { tyre: ['Tyre pressure off recommended', 'tyres'], km: ['Km far from normal', 'km'], fuel: ['Mileage off normal', 'fuel'] };
 
-function group(kind, list, [label, tab], sev, item) {
+// a closed group: the heading and count are the summary; the buses open on a click
+function group(list, [label, tab], sev, item) {
   if (!list.length) return '';
-  return `<details class="agroup sev${sev}" ${sev >= 3 ? 'open' : ''}>
+  return `<details class="agroup sev${sev}">
     <summary><b>${list.length}</b><span class="t">${esc(label)}</span>
       <button class="b-ghost linkbtn go-tab" data-tab="${tab}">Open ${tab === 'km' ? 'daily km' : tab}</button></summary>
     <ul>${list.map(item).join('')}</ul></details>`;
 }
-const who = x => `<b>${x.bus_id != null ? 'Bus ' + x.bus_id : 'Spare'}</b>`;
+const who = x => `<b>${esc(x.vehicle_id != null && vehicleById(x.vehicle_id) ? vLabel(vehicleById(x.vehicle_id)) : x.bus_id != null ? 'Bus ' + x.bus_id : 'Spare')}</b>`;
+const col = (title, n, body, id) => `<section class="wkcol"${id ? ` id="${id}"` : ''}><h4>${title}<b>${n}</b></h4>${body}</section>`;
 
-function lists(R) {
+function lists(R, A, S) {
   const k = R.kpis;
-  const miss = !k.tracked ? `<div class="note">Not tracked yet: the Fleet tab started on ${fmtD(R.tracking_start)}.</div>`
-    : !R.missing.length ? '<div class="note">Every expected entry is in.</div>'
-    : ['km', 'tyre', 'fuel'].map(kd => group(kd, R.missing.filter(m => m.kind === kd), MISSING[kd],
-        kd === 'km' ? (R.missing.some(m => m.kind === 'km' && m.count >= 3) ? 2 : 1) : 2,
-        m => `<li>${who(m)}<span><span class="mono">${esc(m.reg_no)}</span> — ${esc(m.detail)}</span></li>`)).join('');
-  const devs = !R.deviations.length ? '<div class="note">No reading this week was far from normal.</div>'
-    : ['tyre', 'km', 'fuel'].map(kd => { const L = R.deviations.filter(d => d.kind === kd);
-        return group(kd, L, DEVS[kd], Math.max(0, ...L.map(d => d.severity)),
-          d => `<li>${who(d)}<span><span class="mono">${esc(d.reg_no)}</span> · ${esc(short(d.date))} — ${esc(d.detail)}
-            ${d.estimated_spec ? ' <span class="muted">(estimated spec)</span>' : ''}
-            ${d.explained === true ? ' ' + chip('ok', 'Reason given') : d.explained === false ? ' ' + chip('due_soon', 'Reason needed') : ''}</span></li>`); }).join('');
-  return `<section><h3 class="wkh">Data entry missing <span class="note">(${R.missing.length})</span></h3>${miss}</section>
-    <section><h3 class="wkh">Deviation found <span class="note">(${R.deviations.length})</span></h3>${devs}</section>`;
+  let miss, devs;
+  if (A.live) {
+    miss = A.missing.length ? alertGroups(A.missing) : '<div class="note">Every expected entry is in.</div>';
+    devs = A.devs.length ? alertGroups(A.devs) : '<div class="note">Nothing far from normal.</div>';
+  } else {
+    miss = !k.tracked ? `<div class="note">Not tracked yet: the Fleet tab started on ${fmtD(R.tracking_start)}.</div>`
+      : !A.missing.length ? '<div class="note">Every expected entry was in.</div>'
+      : ['km', 'tyre', 'fuel'].map(kd => group(A.missing.filter(m => m.kind === kd), MISSING[kd],
+          kd === 'km' ? (A.missing.some(m => m.kind === 'km' && m.count >= 3) ? 2 : 1) : 2,
+          m => `<li>${who(m)}<span>${esc(m.detail)}</span></li>`)).join('');
+    devs = !A.devs.length ? '<div class="note">No reading that week was far from normal.</div>'
+      : ['tyre', 'km', 'fuel'].map(kd => { const L = A.devs.filter(d => d.kind === kd);
+          return group(L, DEVS[kd], Math.max(0, ...L.map(d => d.severity)),
+            d => `<li>${who(d)}<span>${esc(short(d.date))} — ${esc(d.detail)}
+              ${d.estimated_spec ? ' <span class="muted">(estimated spec)</span>' : ''}
+              ${d.explained === true ? ' ' + chip('ok', 'Reason given') : d.explained === false ? ' ' + chip('due_soon', 'Reason needed') : ''}</span></li>`); }).join('');
+  }
+  const other = A.other.length ? alertGroups(A.other) : '<div class="note">Nothing open.</div>';
+  return col('Data entry missing', A.nMissing, miss) + col('Deviation found', A.nDevs, devs)
+    + col(`Other <span class="note">documents, service, checkups, complaints — open now</span>`, A.other.length, other, 'wkOther');
 }
 
 // ---------------------------------------------------------------- trend charts

@@ -8,7 +8,7 @@ import { downloadCsv } from './fleetkit.js';
 const GROUPS = [
   ['bus', 'Bus and crew', [
     ['round', 'Round'], ['bus_no', 'Bus'], ['transport_status', 'Transport'], ['route_name', 'Route'],
-    ['vehicle_no', 'Vehicle no.'], ['driver_name', 'Driver'], ['driver_phone', 'Driver phone'],
+    ['driver_name', 'Driver'], ['driver_phone', 'Driver phone'],
     ['conductor_name', 'Conductor'], ['conductor_phone', 'Conductor phone']]],
   ['student', 'Student', [
     ['planned_pickup_order', 'Planned pickup order'], ['sr_no', 'SR no.'], ['student_name', 'Student'],
@@ -114,8 +114,7 @@ function draw() {
       <div style="padding:10px 14px;border-bottom:1px solid var(--edge);display:flex;gap:14px;flex-wrap:wrap;align-items:baseline">
         <b style="font-size:15px">${self ? 'Comes by self' : 'Bus ' + h.bus_no}</b>
         ${round === 'both' ? `<span class="chip mute">Round ${h.round}</span>` : ''}
-        ${self ? '' : `<span class="mono muted">${esc(h.vehicle_no || '')}</span>
-        <span>${esc(h.route_name || '')}</span>
+        ${self ? '' : `<span>${esc(h.route_name || '')}</span>
         <span class="note">Driver: <b>${esc(h.driver_name || '—')}</b>${h.driver_phone ? ' · ' + esc(h.driver_phone) : ''}</span>
         ${h.conductor_name ? `<span class="note">Conductor: <b>${esc(h.conductor_name)}</b>${h.conductor_phone ? ' · ' + esc(h.conductor_phone) : ''}</span>` : ''}`}
         <span class="note" style="margin-left:auto">${list.length} student${list.length === 1 ? '' : 's'}</span></div>

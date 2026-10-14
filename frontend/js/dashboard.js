@@ -3,13 +3,17 @@ import { toast } from "./utils.js";
 import { loadBusPage } from "./buspage.js";
 import { loadPickup } from "./pickup.js";
 import { openFleet } from "./fleet.js";
-import { renderFleetWeek } from "./fleet_week.js";
 
-/** Fleet data belongs to vehicles, not to a round, so both dashboards show it.
- *  The section loads on its own after the page is drawn (see fleet_week.js). */
+/** The fleet in three numbers on both dashboards; the graphs and the details are on
+ *  Fleet -> Overview, one click away. Fleet data belongs to vehicles, not to a round. */
 async function fleetSection(){
-  return `<h2 style="margin:22px 0 10px">Fleet <span class="note">(tyres, daily km and fuel, week by week)</span></h2>
-    <div id="dashFleet"></div>`;
+  const {data,error}=await db.from('fleet_alerts').select('category');
+  if(error) return '';
+  const n=c=>(data||[]).filter(a=>a.category===c).length;
+  const tile=(v,l,warn)=>`<button type="button" class="stat stlink${warn&&v>0?' warn':''}" data-fleet="overview"><b>${v.toLocaleString('en-IN')}</b><span>${l}</span></button>`;
+  return `<h2 style="margin:22px 0 10px">Fleet <span class="note">(open now)</span></h2>
+    <div class="cards" id="dashFleet">${tile(n('entry_missing'),'Data entry missing',true)}${tile(n('deviation'),'Deviation found',true)}${tile(n('other'),'Documents, service, complaints',true)}</div>
+    <div class="note" style="margin-top:6px">Weekly graphs and the bus-by-bus details are on <a href="#" data-fleet="overview">Fleet → Overview</a>.</div>`;
 }
 
 function goFix(kind, subject){
@@ -37,7 +41,15 @@ export async function loadDashboard(){
   const drCard = dr?`<div class="stat warn"><b>₹${Number(dr.total_annual_dead_fuel).toLocaleString('en-IN')}</b><span>Dead-run fuel / yr · ${dr.buses_far} buses start >2 km out</span></div>`:'';
   const groups={overloaded:[],temp_ending:[],missing_coords:[],missing_pickup:[]};
   (al||[]).forEach(a=>groups[a.kind]?.push(a));
-  const alertBlock=(al&&al.length)?al.map((a,i)=>`<div class="alert ${a.kind}" data-i="${i}" title="Click to open where this gets fixed" style="cursor:pointer"><span class="k">${a.kind.replace('_',' ')}</span><b>${esc(a.subject)}</b><span class="note">${esc(a.detail)}</span><span style="margin-left:auto;color:var(--faint)">›</span></div>`).join(''):'<div class="note">No alerts — everything looks in order.</div>';
+  // one closed group per kind: the heading and count are the summary, rows open on a click
+  const LABEL={overloaded:'Buses over capacity',temp_ending:'Temporary arrangements ending',
+    missing_coords:'Students without a map pin',missing_pickup:'Students without a pickup order'};
+  const kinds=[...new Set((al||[]).map(a=>a.kind))];
+  const alertBlock=kinds.length?kinds.map(k=>{const L=(al||[]).map((a,i)=>[a,i]).filter(([a])=>a.kind===k);
+    const sev=Math.max(...L.map(([a])=>+a.severity||1));
+    return `<details class="agroup sev${Math.min(3,sev)}"><summary><b>${L.length}</b><span class="t">${esc(LABEL[k]||k.replace(/_/g,' '))}</span></summary>
+      <ul>${L.map(([a,i])=>`<li class="alink" data-i="${i}" title="Open where this gets fixed"><b>${esc(a.subject)}</b><span>${esc(a.detail)}</span><span class="muted" style="margin-left:auto">›</span></li>`).join('')}</ul></details>`;}).join('')
+    :'<div class="note">No alerts — everything looks in order.</div>';
   $('dashBody').innerHTML=`
     <h2 style="margin:0 0 12px">Overview</h2>
     <div class="cards">
@@ -49,8 +61,8 @@ export async function loadDashboard(){
     <h2 style="margin:22px 0 10px">Students <span class="note">(${(al||[]).length})</span></h2>
     ${alertBlock}
     ${fleet}`;
-  if($('dashFleet')) renderFleetWeek($('dashFleet'), openFleet);
-  document.querySelectorAll('#dashBody .alert[data-i]').forEach(el=>{
+  document.querySelectorAll('#dashBody [data-fleet]').forEach(el=>el.onclick=e=>{e.preventDefault();openFleet(el.dataset.fleet);});
+  document.querySelectorAll('#dashBody .alink[data-i]').forEach(el=>{
     el.onclick=()=>{ const a=(al||[])[Number(el.dataset.i)]; if(a) goFix(a.kind, a.subject); };
   });
 }
@@ -81,7 +93,7 @@ async function loadDashboardR2(){
       <table><thead><tr><th>Bus</th><th>Children</th><th>Seats</th><th>Classes</th></tr></thead><tbody>${busRows}</tbody></table></div>
     <div class="note" style="margin-top:14px">Student alerts and Optimization analyse <b>Round 1</b>. Switch back with the toggle in the header.</div>
     ${fleet}`;
-  if($('dashFleet')) renderFleetWeek($('dashFleet'), openFleet);
+  document.querySelectorAll('#dashBody [data-fleet]').forEach(el=>el.onclick=e=>{e.preventDefault();openFleet(el.dataset.fleet);});
 }
 
 // The nav handler in app.js calls loadDashboard() as a global; expose it.

@@ -110,7 +110,7 @@ Ordered by how quickly the thing being checked turns into a real problem.
 | Weekly | Missing coordinates; self-transport children still showing a bus | Dashboard alerts |
 | Weekly | Children active in both rounds at once | Students, both rounds |
 | Daily | Odometer reading for every bus on reaching school, by 11:00; give a reason for any flagged day | Fleet → Daily km |
-| Weekly | Chase every *Data entry missing* line; get a reason or a fix for every *Deviation found* | Dashboard → Fleet |
+| Weekly | Chase every *Data entry missing* line; get a reason or a fix for every *Deviation found* | Fleet → Overview |
 | Before every holiday | Enter the day(s) off, or every bus shows km as missing | Fleet → Daily km → Holidays |
 | Every fill | Litres, price, bill amount and odometer; explain any flagged mileage | Fleet → Fuel |
 | Fortnightly | Tyre pressure — **all four tyres** recorded per bus | Fleet → Tyres → Enter readings |

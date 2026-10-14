@@ -124,7 +124,7 @@ async function grid(el) {
   const { data: rec } = await db.from('documents').select('*,vehicles(reg_no,bus_id),staff(name)').eq('active', true)
     .order('entered_at', { ascending: false }).limit(12);
   $('dcRecent').innerHTML = `<div class="tscroll"><table><tbody>${(rec || []).map(d => `<tr>
-    <td>${d.vehicles ? esc(vLabel(vehicleById(d.vehicle_id)) || d.vehicles.reg_no) : esc(d.staff?.name || '')}</td>
+    <td>${d.vehicles ? esc(vLabel(vehicleById(d.vehicle_id)) || 'Bus ' + (d.vehicles.bus_id ?? '—')) : esc(d.staff?.name || '')}</td>
     <td>${esc(d.doc_type)}${d.notes ? `<span class="audit">${esc(d.notes)}</span>` : ''}${auditLine(d)}</td>
     <td class="num">${fmtD(d.expires_on)}</td><td>${fileLink(d)}</td>
     <td><button class="b-ghost linkbtn" data-del="${d.id}">Remove</button></td></tr>`).join('')}</tbody></table></div>`;

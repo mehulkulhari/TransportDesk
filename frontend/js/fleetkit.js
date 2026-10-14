@@ -25,14 +25,19 @@ export async function vehicles(force) {
     .select('id,reg_no,bus_id,is_spare,make,model_year,seats,tyre_size,notes').eq('active', true);
   if (error) { toast(error.message, 'bad'); return VEH || []; }
   const rank = v => v.bus_id != null ? v.bus_id : v.is_spare ? 1e4 : 2e4;
-  VEH = (data || []).sort((a, b) => rank(a) - rank(b) || a.reg_no.localeCompare(b.reg_no));
+  VEH = (data || []).sort((a, b) => rank(a) - rank(b) || a.id - b.id);
+  // Spares have no route number, so they are numbered among themselves
+  let sp = 0, un = 0;
+  VEH.forEach(v => v.name = v.bus_id != null ? `Bus ${v.bus_id}` : v.is_spare ? `Spare ${++sp}` : `Unassigned ${++un}`);
   return VEH;
 }
 export const vehicleById = id => (VEH || []).find(v => v.id === +id);
 
+/** A vehicle is shown by its bus number, never its registration. The plate lives only
+ *  in Fleet -> Vehicles, where it is recorded. */
 export function vLabel(v) {
   if (!v) return '—';
-  return (v.bus_id != null ? `Bus ${v.bus_id}` : v.is_spare ? 'Spare' : 'Unassigned') + ' · ' + v.reg_no;
+  return v.name || (v.bus_id != null ? `Bus ${v.bus_id}` : v.is_spare ? 'Spare' : 'Unassigned');
 }
 
 export async function staffList(force) {

@@ -35,9 +35,9 @@ async function spares() {
     <p class="lede">Every day a spare covered for a broken-down bus, with the kilometres and fuel it used. Recorded through
       <b>Daily km</b> and <b>Fuel</b>, choosing the route it covered.</p>
     <div class="cards" style="margin-bottom:12px">${S.map(s => `<div class="stat"><b>${n0(s.days)} days</b>
-      <span>${esc(s.v.reg_no)} · ${n0(Math.round(s.km))} km · ${n0(Math.round(s.L))} L · ${rs(Math.round(s.C))}</span></div>`).join('')}</div>
+      <span>${esc(vLabel(s.v))} · ${n0(Math.round(s.km))} km · ${n0(Math.round(s.L))} L · ${rs(Math.round(s.C))}</span></div>`).join('')}</div>
     <div class="tscroll"><table><thead><tr><th>Spare</th><th>Routes covered</th><th>Last used</th><th>Recent days</th></tr></thead>
-    <tbody>${S.map(s => `<tr><td>${esc(s.v.reg_no)}</td><td>${s.routes || '<span class="muted">not used yet</span>'}</td>
+    <tbody>${S.map(s => `<tr><td>${esc(vLabel(s.v))}</td><td>${s.routes || '<span class="muted">not used yet</span>'}</td>
       <td>${s.last ? fmtD(s.last) : '—'}</td>
       <td>${s.log.map(r => `${fmtD(r.recorded_on)}: route ${r.bus_id}, ${r.km_run != null ? n0(r.km_run) + ' km' : 'first reading'}${r.reason ? ' — ' + esc(r.reason) : ''}`).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -76,7 +76,7 @@ async function registry(el) {
       if (r.is_spare) r.bus_id = null;            // a spare has no route of its own
       return r; });
     const taken = rows.filter(r => r.bus_id != null).map(r => [r, V.find(v => v.bus_id === r.bus_id && v.id !== r.id && !dirty.has(v.id))]).filter(x => x[1]);
-    if (taken.length && !confirm(taken.map(([r, o]) => `Route ${r.bus_id}: ${o.reg_no} will become unassigned.`).join('\n') + '\n\nContinue?')) return;
+    if (taken.length && !confirm(taken.map(([r, o]) => `Route ${r.bus_id}: its current vehicle will become unassigned.`).join('\n') + '\n\nContinue?')) return;
     busy($('vhSave'), true);
     // free the routes first — a route can hold one vehicle at a time
     for (const [, o] of taken) { const { error } = await db.from('vehicles').update({ bus_id: null }).eq('id', o.id); if (error) { busy($('vhSave'), false); toast(error.message, 'bad'); return; } }

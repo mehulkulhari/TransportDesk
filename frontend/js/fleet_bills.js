@@ -74,7 +74,7 @@ async function list(el) {
         `<div class="stat"><b>${rs(Math.round(v))}</b><span>${esc(catName(k))}</span></div>`).join('')}</div>
     <div class="tscroll"><table><thead><tr><th>Date</th><th>Vehicle</th><th>Party</th><th>Bill no.</th><th>Category</th><th class="num">Amount</th><th>Bill</th><th></th></tr></thead>
     <tbody>${B.map(b => `<tr><td>${fmtD(b.recorded_on)}</td>
-      <td>${b.vehicle_id ? esc(vLabel(vehicleById(b.vehicle_id))) : b.vehicle_ref ? `<span class="mono">${esc(b.vehicle_ref)}</span> <span class="muted">not in fleet</span>` : '<span class="muted">whole fleet</span>'}</td>
+      <td>${b.vehicle_id ? esc(vLabel(vehicleById(b.vehicle_id))) : b.vehicle_ref ? '<span class="muted">vehicle not in fleet</span>' : '<span class="muted">whole fleet</span>'}</td>
       <td>${esc(b.party_name || '')}${b.description ? `<span class="audit">${esc(b.description)}</span>` : ''}${auditLine(b)}</td>
       <td class="mono">${esc(b.bill_no || '')}</td><td>${esc(catName(b.category))}</td><td class="num"><b>${rs(Math.round(b.amount))}</b></td>
       <td>${fileLink(b)}</td><td><button class="b-ghost linkbtn" data-del="${b.id}">Remove</button></td></tr>`).join('')
@@ -85,7 +85,7 @@ async function list(el) {
   $('blList').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
     if (await deactivate('maintenance_bills', b.dataset.del, 'bill')) list(el); });
   $('blCsv').onclick = () => downloadCsv('maintenance-bills', [
-    { label: 'Date', k: 'recorded_on' }, { label: 'Vehicle', csv: b => b.vehicle_id ? vLabel(vehicleById(b.vehicle_id)) : b.vehicle_ref || 'Whole fleet' },
+    { label: 'Date', k: 'recorded_on' }, { label: 'Vehicle', csv: b => b.vehicle_id ? vLabel(vehicleById(b.vehicle_id)) : (b.vehicle_ref ? 'Vehicle not in fleet' : 'Whole fleet') },
     { label: 'Party', k: 'party_name' }, { label: 'Bill no', k: 'bill_no' }, { label: 'Category', csv: b => catName(b.category) },
     { label: 'Amount', k: 'amount' }, { label: 'Description', k: 'description' }, { label: 'Provided by', k: 'provided_by' },
     { label: 'Entered by', k: 'entered_by_email' }], B);

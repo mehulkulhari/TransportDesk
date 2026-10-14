@@ -41,9 +41,15 @@ for (const t of ['overview', 'tyres', 'km', 'fuel', 'service', 'checkup', 'docs'
 
 log('\n-- overview');
 await renderFleet('overview'); await wait(200);
+await wait(300);
+check(pane().querySelector('#wkTiles .wkstat') && pane().querySelectorAll('#wkCharts svg').length === 3, 'Overview carries the week: tiles and trend graphs');
 check(pane().querySelectorAll('.agroup').length >= 5, `alert groups drawn: ${pane().querySelectorAll('.agroup').length}`);
-check(pane().querySelectorAll('.vcard').length === 6, `vehicle cards: ${pane().querySelectorAll('.vcard').length}`);
-check(pane().querySelector('.agroup.sev3')?.open === true, 'most urgent group opens by default');
+check([...pane().querySelectorAll('.agroup')].every(g => !g.open), 'every alert group starts as a heading only, closed');
+check(!/TEST 00|SPARE 00/.test(pane().innerText + pane().textContent), 'no registration number anywhere on the Overview — buses by number');
+check(/Bus 1(?!\d)/.test(pane().textContent), 'alerts name the bus ("Bus 1")');
+check(!pane().querySelectorAll('.vcard').length && !$('ovVehicles').open, 'vehicle cards are folded away until asked for');
+$('ovVehicles').open = true; await wait(300);
+check(pane().querySelectorAll('.vcard').length === 6 && /Spare 1/.test($('ovVehicles').innerText), `opening "Every vehicle" shows the cards, spares numbered: ${pane().querySelectorAll('.vcard').length}`);
 check([...$('fleetNav').querySelectorAll('.ct')].some(c => !c.hidden), 'tab badges show counts');
 pane().querySelector('.go-tab[data-tab="docs"]').click(); await wait(300);
 check($('fleetNav').querySelector('button.on')?.dataset.t === 'docs', '"Open docs" button switches to the Documents tab');
@@ -194,7 +200,7 @@ check(writes.some(w => w.table === 'complaints' && w.op === 'update' && w.payloa
 
 log('\n-- vehicles');
 await renderFleet('vehicles'); await wait(300);
-check(/SPARE 0001/.test($('vhSpare').innerText) && /route 2/.test($('vhSpare').innerText), 'spare usage shows the route it covered');
+check(/Spare 1/.test($('vhSpare').innerText) && !/SPARE 0001/.test($('vhSpare').innerText) && /route 2/.test($('vhSpare').innerText), 'spare usage names the spare by number and shows the route it covered');
 const mk = pane().querySelector('#vhReg tr[data-id="1"] [data-k="make"]'); type(mk, 'Eicher Skyline');
 n = writes.length; $('vhSave').click(); await wait(300);
 const vw = writes.slice(n);
@@ -213,19 +219,26 @@ check(/75%/.test($('wkTiles').innerText) && /9 of 12 expected/.test($('wkTiles')
 check(/estimated/.test($('wkHost').querySelector('.wkfoot').innerText), 'the estimated-spec caveat sits under the tiles');
 check($('wkCharts').querySelectorAll('svg').length === 3 && $('wkCharts').querySelectorAll('.ln').length === 3, 'three small trend charts, one series each');
 check($('wkCharts').querySelectorAll('[data-s="dev"] .dot').length === 3, 'tyre chart plots only weeks that had readings (3)');
-const lists = $('wkLists');
-check(/Data entry missing \(4\)/.test(lists.innerText) && /Deviation found \(3\)/.test(lists.innerText), 'two separate sections: missing (4) and deviation (3)');
-check(lists.querySelectorAll('section:first-child .agroup').length === 3, 'missing entries grouped by km / tyre / fuel');
-// textContent, not innerText: the km and fuel groups start collapsed
-check(/Reason needed/i.test(lists.textContent) && /Reason given/i.test(lists.textContent), 'deviations say whether a reason was recorded');
-check(/estimated spec/.test(lists.innerText), 'a tyre deviation against an estimated spec says so');
-check(!$('wkHost').querySelector('img') && !window.__xss, 'details from the database are escaped');
-check(!/no odometer reading/.test($('wkOther').innerText) && /Documents expired/.test($('wkOther').innerText), 'other alerts exclude missing-entry and deviation kinds');
+const lists = $('wkLists'), cols = [...lists.querySelectorAll('.wkcol')];
+const colN = c => +c.querySelector('h4 b').textContent, colItems = c => c.querySelectorAll('li').length;
+check(cols.length === 3 && /Data entry missing/.test(cols[0].textContent) && /Deviation found/.test(cols[1].textContent) && /Other/.test(cols[2].textContent), 'three columns: data entry missing, deviation found, other');
+check(cols.every(c => colN(c) === colItems(c)) && colN(cols[0]) > 0 && colN(cols[1]) > 0, `this week the columns are the alerts open now (${cols.map(colN).join(' / ')})`);
+check(new RegExp(`^${colN(cols[0])}\\b`).test([...$('wkTiles').querySelectorAll('.wkstat')][4].querySelector('b').textContent) && /open now/.test($('wkTiles').innerText), 'the missing-entry tile counts the same alerts as its column');
+check(/no odometer reading/.test(cols[0].textContent) && !/no odometer reading/.test($('wkOther').textContent) && /Documents expired/.test($('wkOther').innerText), 'each alert sits in its own column');
+check(!/TEST 00/.test($('wkHost').textContent), 'no registration numbers in the alert rows');
 lists.querySelector('.go-tab[data-tab="km"]').click();
 check(opened.pop() === 'km', '"Open daily km" opens the Daily km tab');
 const sel = $('wkSel'); sel.value = sel.options[1].value; sel.dispatchEvent(new Event('change')); await wait(200);
 check(rpcCalls.filter(c => c[0] === 'fleet_week_report').pop()[1].p_week === sel.options[1].value, 'choosing a week fetches that week');
 check(/−15\.3%/.test($('wkTiles').innerText), 'last week shows its own figure (−15.3%)');
+const pc = [...lists.querySelectorAll('.wkcol')];
+check(colN(pc[0]) === 4 && colN(pc[1]) === 3 && /in the week of/.test($('wkListNote').textContent), 'a past week lists that week\'s report: missing 4, deviation 3');
+check(pc[0].querySelectorAll('.agroup').length === 3, 'missing entries grouped by km / tyre / fuel');
+// textContent, not innerText: the groups start collapsed
+check(/Reason needed/i.test(lists.textContent) && /Reason given/i.test(lists.textContent), 'deviations say whether a reason was recorded');
+check(/estimated spec/.test(lists.textContent), 'a tyre deviation against an estimated spec says so');
+check(!$('wkHost').querySelector('img') && !window.__xss, 'details from the database are escaped');
+check(/Spare 1/.test(lists.textContent) && !/TEST 00|SPARE 00/.test(lists.textContent), 'report rows name buses and spares by number');
 check($('wkCharts').querySelector('[data-s="dev"] .dot.sel'), 'the chosen week is highlighted on the charts');
 sel.value = sel.options[6].value; sel.dispatchEvent(new Event('change')); await wait(200);
 check(/Not tracked yet/.test($('wkNote').textContent) && /Not tracked yet/.test(lists.innerText), 'weeks before the Fleet tab say "not tracked", not "missing"');

@@ -2,7 +2,8 @@
 // This file is the shell (sub-navigation) and the Overview; each tab lives in its
 // own fleet_*.js module and exposes render(el).
 
-import { vehicles, staffList, vLabel, n0, fmtD, chip } from './fleetkit.js';
+import { vehicles, staffList, vLabel, vehicleById, n0, fmtD, chip } from './fleetkit.js';
+import { renderFleetWeek } from './fleet_week.js';
 import { renderTyres } from './fleet_tyres.js';
 import { renderKm } from './fleet_km.js';
 import { renderFuel } from './fleet_fuel.js';
@@ -89,7 +90,14 @@ export async function refreshCounts() {
   });
 }
 
-/** Alerts grouped by what they are, most urgent first — never a wall of 100 rows. */
+/** Who an alert is about: a vehicle by its bus number (never its registration), else the person. */
+export function alertWho(a) {
+  if (a.vehicle_id != null) { const v = vehicleById(a.vehicle_id); if (v) return vLabel(v); }
+  return a.bus_id != null && a.vehicle_id != null ? 'Bus ' + a.bus_id : a.subject || '—';
+}
+
+/** Alerts grouped by what they are, most urgent first. Every group starts closed:
+ *  the heading and count are the summary, the rows open on a click. */
 export function alertGroups(alerts, { max = 40 } = {}) {
   const groups = {};
   (alerts || []).forEach(a => (groups[a.kind] = groups[a.kind] || []).push(a));
@@ -101,9 +109,9 @@ export function alertGroups(alerts, { max = 40 } = {}) {
   const html = kinds.map(k => {
     const list = groups[k], sev = Math.max(...list.map(x => x.severity));
     const [label, tab] = FLEET_KINDS[k] || [k.replace(/_/g, ' '), 'overview'];
-    const items = list.slice(0, max).map(a => `<li><b>${esc(a.subject)}</b><span>${esc(a.detail)}</span></li>`).join('')
+    const items = list.slice(0, max).map(a => `<li><b>${esc(alertWho(a))}</b><span>${esc(a.detail)}</span></li>`).join('')
       + (list.length > max ? `<li class="muted">…and ${list.length - max} more</li>` : '');
-    return `<details class="agroup sev${sev}" ${sev >= 3 ? 'open' : ''}>
+    return `<details class="agroup sev${sev}">
       <summary><b>${list.length}</b><span class="t">${esc(label)}</span>
         <button class="b-ghost linkbtn go-tab" data-tab="${tab}">Open ${esc(tab === 'km' ? 'daily km' : tab)}</button></summary>
       <ul>${items}</ul></details>`;
@@ -126,41 +134,32 @@ export function openFleet(tab) {
 }
 
 async function renderOverview(el) {
-  const [{ data: al }, { data: ov }] = await Promise.all([
-    db.from('fleet_alerts').select('*'),
-    db.from('vehicle_overview').select('*')]);
-  const A = al || [], V = ov || [];
-  const cnt = f => A.filter(f).length;
-  const tile = (v, l, warn) => `<div class="stat ${warn && v > 0 ? 'warn' : ''}"><b>${n0(v)}</b><span>${l}</span></div>`;
-  const vcard = v => {
-    const sev = v.max_severity;
-    const tyre = v.tyre_status ? chip(v.tyre_status) : '';
-    return `<div class="vcard sev${sev}">
-      <div class="hd"><b>${v.bus_id != null ? 'Bus ' + v.bus_id : v.is_spare ? 'Spare' : 'Unassigned'}</b><span class="mono">${esc(v.reg_no)}</span></div>
-      <dl>
-        <dt>Tyres</dt><dd>${tyre}${v.tyre_stale ? ' <span class="muted">check due</span>' : ''}</dd>
-        <dt>Normal day</dt><dd>${v.avg_daily_km != null ? v.avg_daily_km + ' km' : '<span class="muted">no readings</span>'}</dd>
-        <dt>Mileage</dt><dd>${v.avg_kmpl != null ? v.avg_kmpl + ' km/L' : '<span class="muted">no fills</span>'}${v.reference_kmpl ? ` <span class="muted">(ref ${v.reference_kmpl})</span>` : ''}</dd>
-        <dt>Service</dt><dd>${chip(v.service_status)}${v.km_remaining != null ? ` <span class="mono">${n0(v.km_remaining)} km</span>` : ''}</dd>
-        <dt>Documents</dt><dd>${v.docs_attention ? chip('expiring', v.docs_attention + ' need attention') : v.next_expiry ? 'next ' + fmtD(v.next_expiry) : '<span class="muted">none recorded</span>'}</dd>
-      </dl></div>`;
-  };
-  el.innerHTML = `
-    <div class="cards" style="margin-bottom:18px">
-      ${tile(cnt(a => a.severity >= 3), 'Need attention now', true)}
-      ${tile(cnt(a => a.severity === 2), 'Need attention this week', true)}
-      ${tile(cnt(a => a.kind === 'tyre_check_due'), 'Tyre checks due', true)}
-      ${tile(cnt(a => a.kind.startsWith('doc_')), 'Documents expired or expiring', true)}
-      ${tile(cnt(a => a.kind.startsWith('service_')), 'Service due or overdue', true)}
-      ${tile(cnt(a => a.kind === 'complaint_open'), 'Open complaints', true)}
-      ${tile(cnt(a => a.kind === 'spare_in_use'), 'Spares in use today')}
-    </div>
-    <div class="fsplit" style="grid-template-columns:minmax(0,1fr) minmax(0,1.3fr)">
-      <div id="ovAlerts"><h3 style="margin:0 0 10px;font-size:15px">What needs attention</h3>${alertGroups(A)}</div>
-      <div><h3 style="margin:0 0 10px;font-size:15px">Every vehicle <span class="note">(${V.length} · most urgent first)</span></h3>
-        <div class="vgrid">${V.sort((a, b) => b.max_severity - a.max_severity || (a.bus_id ?? 1e4) - (b.bus_id ?? 1e4)).map(vcard).join('')}</div></div>
-    </div>`;
-  bindAlertGroups($('ovAlerts'), t => renderFleet(t));
+  el.innerHTML = `<div id="ovWeek"></div>
+    <details class="fsec" id="ovVehicles"><summary><b>Every vehicle</b>
+      <span class="note">status card per bus, most urgent first</span></summary><div class="hint">Loading…</div></details>`;
+  // the cards are only fetched when someone opens them
+  $('ovVehicles').addEventListener('toggle', async e => {
+    const box = e.target; if (!box.open || box.dataset.done) return;
+    box.dataset.done = '1';
+    const { data: ov } = await db.from('vehicle_overview').select('*');
+    const V = (ov || []).sort((a, b) => b.max_severity - a.max_severity || (a.bus_id ?? 1e4) - (b.bus_id ?? 1e4));
+    box.querySelector('summary .note').textContent = `${V.length} vehicles · status card per bus, most urgent first`;
+    box.querySelector('.hint').outerHTML = `<div class="vgrid">${V.map(vcard).join('')}</div>`;
+  });
+  await renderFleetWeek($('ovWeek'), t => renderFleet(t));
+}
+
+function vcard(v) {
+  const tyre = v.tyre_status ? chip(v.tyre_status) : '';
+  return `<div class="vcard sev${v.max_severity}">
+    <div class="hd"><b>${esc(vLabel(vehicleById(v.vehicle_id) || v))}</b></div>
+    <dl>
+      <dt>Tyres</dt><dd>${tyre}${v.tyre_stale ? ' <span class="muted">check due</span>' : ''}</dd>
+      <dt>Normal day</dt><dd>${v.avg_daily_km != null ? v.avg_daily_km + ' km' : '<span class="muted">no readings</span>'}</dd>
+      <dt>Mileage</dt><dd>${v.avg_kmpl != null ? v.avg_kmpl + ' km/L' : '<span class="muted">no fills</span>'}${v.reference_kmpl ? ` <span class="muted">(ref ${v.reference_kmpl})</span>` : ''}</dd>
+      <dt>Service</dt><dd>${chip(v.service_status)}${v.km_remaining != null ? ` <span class="mono">${n0(v.km_remaining)} km</span>` : ''}</dd>
+      <dt>Documents</dt><dd>${v.docs_attention ? chip('expiring', v.docs_attention + ' need attention') : v.next_expiry ? 'next ' + fmtD(v.next_expiry) : '<span class="muted">none recorded</span>'}</dd>
+    </dl></div>`;
 }
 
 Object.assign(globalThis, { renderFleet, openFleet });

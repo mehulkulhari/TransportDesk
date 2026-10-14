@@ -47,7 +47,7 @@ async function drawBoard(body, root) {
       return `<div class="tyre ${tone(v, rec)}" title="${l}: ${v ?? 'not read'} psi, recommended ${rec ?? '—'}">${v ?? '–'}<small>${v != null ? dev(v, rec) || l : l}</small></div>`;
     }).join('');
     return `<div class="tbus" data-v="${r.vehicle_id}">
-      <div class="hd"><b>${r.bus_id != null ? 'Bus ' + r.bus_id : r.is_spare ? 'Spare' : 'Unassigned'}</b><span>${esc(r.reg_no)}</span></div>
+      <div class="hd"><b>${esc(vLabel(vehicleById(r.vehicle_id)))}</b></div>
       <div class="chassis">${t}</div>
       <div class="ft"><span>${r.recorded_on ? fmtD(r.recorded_on) : 'never checked'}</span>
         ${chip(r.status)}${r.imbalanced && r.status !== 'unsafe' ? ' ' + chip('high', 'uneven') : ''}</div></div>`;
@@ -148,11 +148,11 @@ async function drawEntry(body, root) {
     <p class="lede">Check cold, before the morning run, every 15 days. The colour beside each figure is live
       against that vehicle's recommended pressure. A spare covering a route should have that route chosen.</p>
     <div class="frow" style="max-width:640px">${auditFields('ty', { dateLabel: 'Date checked' })}
-      <div class="field"><label for="tyFind">Find a bus</label><input id="tyFind" placeholder="Bus number or registration"/></div></div>
+      <div class="field"><label for="tyFind">Find a bus</label><input id="tyFind" placeholder="Bus number, e.g. 12"/></div></div>
     <div class="tscroll"><table><thead><tr><th>Vehicle</th><th>Route covered</th>
       ${POS.map(([, l, t]) => `<th class="num" title="${t}">${l}</th>`).join('')}<th>Last check</th><th>Now</th></tr></thead>
       <tbody>${order.map(v => { const s = sp[v.id] || {}, l = ls[v.id] || {};
-        return `<tr data-v="${v.id}" data-q="${esc((v.bus_id ?? '') + ' ' + v.reg_no).toLowerCase()}">
+        return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}">
           <td>${esc(vLabel(v))}</td>
           <td>${routeSelect('tyr' + v.id, v.bus_id, { blank: v.is_spare ? 'Pick route…' : 'No route' })}</td>
           ${POS.map(([k]) => `<td class="num"><input type="number" min="0" max="250" step="1" data-k="${k}"
@@ -179,7 +179,7 @@ async function drawEntry(body, root) {
     const recs = [];
     for (const tr of rows) {
       const vid = +tr.dataset.v, v = vehicleById(vid), route = $('tyr' + vid).value;
-      if (v.is_spare && !route) { toast(`Pick the route ${v.reg_no} covered`, 'bad'); $('tyr' + vid).focus(); return; }
+      if (v.is_spare && !route) { toast(`Pick the route ${vLabel(v)} covered`, 'bad'); $('tyr' + vid).focus(); return; }
       const r = { vehicle_id: vid, bus_id: route ? +route : null, ...a };
       tr.querySelectorAll('input[data-k]').forEach(i => r[i.dataset.k] = i.value === '' ? null : +i.value);
       recs.push(r);

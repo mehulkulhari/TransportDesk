@@ -212,7 +212,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .agroup>summary .go-tab{margin-left:auto}
 .agroup ul{list-style:none;margin:0;padding:0 14px 10px 18px;max-height:260px;overflow:auto}
 .agroup li{padding:5px 0;border-top:1px solid var(--edge-soft);font-size:13px;display:flex;gap:10px}
-.agroup li b{min-width:120px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}
+.agroup li b{min-width:64px;font-size:12.5px;font-weight:600;white-space:nowrap}
 
 /* A bus seen from above: four tyres in their real positions. */
 .tyregrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
@@ -282,9 +282,20 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .wkchart .tip{position:absolute;top:-6px;pointer-events:none;background:var(--ink);color:#fff;border-radius:6px;padding:5px 9px;font-size:11.5px;white-space:nowrap;box-shadow:var(--sh-2);z-index:3}
 .wkchart .tip b{display:block;font-size:13px}.wkchart .tip span{color:#c9d3dd}
 .wktable{margin:4px 0 16px}.wktable summary{cursor:pointer;font-size:13px;color:var(--sky);margin-bottom:6px}
-.wklists{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
-@media (max-width:900px){.wklists{grid-template-columns:minmax(0,1fr)}}
-.wkh{margin:4px 0 10px;font-size:15px}
+.wkh{margin:18px 0 10px;font-size:15px}
+.wkcols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+@media (max-width:1100px){.wkcols{grid-template-columns:minmax(0,1fr)}}
+.wkcol h4{display:flex;align-items:baseline;gap:8px;margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate)}
+.wkcol h4 b{margin-left:auto;font-size:18px;color:var(--ink);letter-spacing:0;font-variant-numeric:tabular-nums}
+.wkcol h4 .note{text-transform:none;letter-spacing:0;font-weight:400}
+/* a section folded away until asked for */
+.fsec{margin-top:18px;border:1px solid var(--edge);border-radius:var(--r-m);background:var(--panel);box-shadow:var(--sh-1)}
+.fsec>summary{cursor:pointer;padding:12px 14px;display:flex;gap:10px;align-items:baseline}
+.fsec[open]>summary{border-bottom:1px solid var(--edge-soft)}
+.fsec>.vgrid,.fsec>.hint{padding:12px}
+/* dashboard: the fleet in three numbers, each opening Fleet -> Overview */
+.agroup li.alink{cursor:pointer}.agroup li.alink:hover{background:var(--signal-soft)}
+.stat.stlink{text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%}
 .wk .loading{opacity:.5;transition:opacity var(--tr)}
 
 .seg{display:inline-flex;border:1px solid var(--edge);border-radius:var(--r-s);overflow:hidden;background:var(--panel)}
