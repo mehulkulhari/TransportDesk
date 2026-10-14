@@ -1,4 +1,5 @@
 // Shared building blocks for the Fleet screens.
+import { csvCell } from './utils.js';
 //
 // Every log in the fleet module records the VEHICLE (the physical bus, by
 // registration) and, separately, the ROUTE it covered. They are not the same
@@ -139,7 +140,7 @@ export function bindFileLinks(root) {
 
 /** Minimal CSV download of whatever a screen is showing. */
 export function downloadCsv(name, cols, rows) {
-  const q = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const q = csvCell;   // utils.js: quotes the cell and neutralises spreadsheet formulas
   const csv = [cols.map(c => q(c.label)).join(',')]
     .concat(rows.map(r => cols.map(c => q(c.csv ? c.csv(r) : r[c.k])).join(','))).join('\n');
   const a = document.createElement('a');

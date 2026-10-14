@@ -30,6 +30,20 @@ export function pick(row, keys){ // find a value by any of several loose header 
 export function isoDate(s){ if(!s)return null; const m=String(s).trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/); if(!m)return null;
   const[_,d,mo,y]=m; const dt=`${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`; return dt; }
 
+/**
+ * One CSV cell. Excel and Sheets run any cell beginning with = + - @ (or a tab or
+ * carriage return) as a formula, so a name or address typed by staff - or imported
+ * from a sheet - could execute when an export is opened. Such cells get a leading
+ * apostrophe. Genuine numbers, including negatives like -12.5 or -4%, are left alone.
+ */
+export function csvCell(v){
+  if(v==null) return '';
+  if(typeof v==='number'||typeof v==='boolean') return String(v);
+  let s=String(v);
+  if(/^[=+\-@\t\r]/.test(s) && !/^[-+]?\d[\d,]*(\.\d+)?%?$/.test(s)) s="'"+s;
+  return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+
 export function digits(s){ if(!s)return null; const d=String(s).replace(/\D/g,''); return d||null; }
 
 export function repTable(cols,rows,title){
@@ -50,4 +64,4 @@ export const esc = (...args) => globalThis.esc(...args);
 export const rs = (...args) => globalThis.rs(...args);
 export const rupee = (...args) => globalThis.rupee(...args);
 
-Object.assign(globalThis, { fetchAll, toast, hav, norm, pick, isoDate, digits, repTable, statCard, table });
+Object.assign(globalThis, { fetchAll, toast, hav, norm, pick, isoDate, digits, csvCell, repTable, statCard, table });

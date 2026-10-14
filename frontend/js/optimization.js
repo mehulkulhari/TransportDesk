@@ -1,3 +1,4 @@
+import { csvCell } from "./utils.js";
 import { GOOGLE_DIRECTIONS_KEY } from "./config.js";
 import { renderOptimizationR2 } from "./optimization_r2.js";
 // Optimization analysis engine.
@@ -746,9 +747,9 @@ export function downloadOptCsv(title){
   const skip = td => td.querySelector('button,select,input') || ['Status','','Test','Map','Test Map'].includes(td.textContent.trim());
   const rows = [...tbl.querySelectorAll('tr')].map(tr=>[...tr.children]
     .filter(td=>!skip(td))
-    .map(td=>`"${td.textContent.replace(/"/g,'""').trim()}"`).join(','));
+    .map(td=>csvCell(td.textContent.trim())).join(','));
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([rows.join('\n')],{type:'text/csv'}));
+  a.href = URL.createObjectURL(new Blob(['\ufeff'+rows.join('\n')],{type:'text/csv'}));
   a.download = title+'.csv'; a.click();
 }
 
