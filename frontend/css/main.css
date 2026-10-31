@@ -308,6 +308,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 
 .hint-box{border:1px dashed var(--edge);border-radius:var(--r-m);padding:14px 16px;color:var(--slate);font-size:13px;background:var(--panel-2)}
 .reasonrow td{background:var(--signal-soft)!important}
+tr.editing td{background:var(--signal-soft)!important}
 .report{max-width:900px}
 .report h2{margin:0}.report .sub{color:var(--slate);margin:2px 0 16px}
 /* print whichever view is open, at full length, without the app chrome */

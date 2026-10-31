@@ -10,7 +10,7 @@
 <div id="wkHost" style="width:1000px;padding:12px"></div>
 <pre id="out" style="position:fixed;right:0;bottom:0;max-height:40vh;overflow:auto;background:#101c29;color:#cfe;font-size:11px;margin:0;padding:8px;z-index:99;max-width:48vw;white-space:pre-wrap"></pre>
 <script type="module">
-import { fakeDb, writes, rpcCalls } from './fakedb.js';
+import { fakeDb, writes, rpcCalls, setEditor, refuseNextWrite } from './fakedb.js';
 globalThis.$ = id => document.getElementById(id);
 globalThis.esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 globalThis.rs = n => '₹' + Number(n || 0).toLocaleString('en-IN');
@@ -205,6 +205,94 @@ const mk = pane().querySelector('#vhReg tr[data-id="1"] [data-k="make"]'); type(
 n = writes.length; $('vhSave').click(); await wait(300);
 const vw = writes.slice(n);
 check(vw.length === 1 && vw[0].payload.make === 'Eicher Skyline', `editing only the make writes one update, no route churn (${vw.length} writes)`);
+
+log('\n-- correcting entries');
+const { canEditAll } = await import('../../frontend/js/fleetkit.js');
+const asEditor = async on => { setEditor(on); await canEditAll(true); };
+const kmRow = v => [...pane().querySelectorAll('#kmSheet tbody tr')].find(tr => tr.dataset.v === String(v));
+const kmDate = async d => { $('km_on').value = d; $('km_on').dispatchEvent(new Event('change')); await wait(250); };
+const dayAgo = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+const lastWrite = t => writes.filter(w => w.table === t).pop();
+
+await asEditor(false); await renderFleet('km'); await wait(300);
+check(/only the authorised editor can change it/.test(pane().innerText), 'staff are told the rule on the Daily km tab');
+check(kmRow(4).querySelector('.kmEdit'), "today's reading has an Edit button");
+check(/edited by office@school\.in/.test(kmRow(4).innerText) && /was 90,100/.test(kmRow(4).innerText), 'a corrected reading says who changed it and what it was');
+const onToday = $('km_on').value;
+await kmDate(dayAgo(2));
+check(kmRow(4).classList.contains('done') && !pane().querySelector('.kmEdit'), 'older readings have no Edit button for staff');
+await kmDate(onToday);
+kmRow(4).querySelector('.kmEdit').click(); await wait(20);
+const kmE = kmRow(4), kmInp = kmE.querySelector('.kmIn'), base = +kmInp.value;
+check(kmE.classList.contains('editing') && base > 0, `Edit opens the row with the saved reading (${base})`);
+n = writes.length; $('kmSave').click(); await wait(50);
+check(writes.length === n, '"Save readings" leaves a row being corrected alone');
+kmE.querySelector('.kmNo').click(); await wait(250);
+check(!kmRow(4).querySelector('.kmIn') && kmRow(4).querySelector('.kmEdit'), 'Cancel puts the row back unchanged');
+kmRow(4).querySelector('.kmEdit').click(); await wait(20);
+const kmF = kmRow(4), prevKm = base - 42;
+type(kmF.querySelector('.kmIn'), String(prevKm + 10)); await wait(20);
+n = writes.length; kmF.querySelector('.kmUpd').click(); await wait(100);
+check(writes.length === n && /reason/i.test(lastToast()), `a corrected day far from normal still needs a reason: "${lastToast()}"`);
+kmF.querySelector('.kmWhy').value = 'Half day';
+refuseNextWrite('This entry can only be changed on the day it was entered. After that, ask the authorised editor.');
+kmF.querySelector('.kmUpd').click(); await wait(150);
+check(/authorised editor/.test(lastToast()) && kmF.isConnected && kmF.classList.contains('editing'), 'if the database refuses, the person sees why and keeps their typing');
+kmF.querySelector('.kmUpd').click(); await wait(300);
+const kmW = lastWrite('odometer_readings');
+check(kmW.op === 'update' && kmW.payload.reading_km === prevKm + 10 && kmW.payload.reason === 'Half day' && kmW.where.id, 'saves the correction against that one row');
+
+let asked = null; const realConfirm = window.confirm;
+await asEditor(true); await renderFleet('km'); await wait(300);
+check(/You are the authorised editor/.test(pane().innerText), 'the editor is told so');
+await kmDate(dayAgo(2));
+check(kmRow(1).querySelector('.kmEdit') && kmRow(4).querySelector('.kmEdit'), 'the editor gets Edit on older readings');
+kmRow(4).querySelector('.kmEdit').click(); await wait(20);
+const kmO = kmRow(4), oldKm = +kmO.querySelector('.kmIn').value;
+type(kmO.querySelector('.kmIn'), String(oldKm + 5000)); await wait(20);
+kmO.querySelector('.kmWhy').value = 'Typed wrong';
+window.confirm = m => { asked = m; return false; };
+n = writes.length; kmO.querySelector('.kmUpd').click(); await wait(100);
+check(/higher than the next reading/.test(asked || '') && writes.length === n, `warns before a reading passes the next day's: "${asked}"`);
+window.confirm = realConfirm;
+type(kmO.querySelector('.kmIn'), String(oldKm + 3)); await wait(20);
+kmO.querySelector('.kmUpd').click(); await wait(300);
+check(lastWrite('odometer_readings').payload.reading_km === oldKm + 3 && /changes with it/.test(lastToast()), `says the next day's km moves too: "${lastToast()}"`);
+
+await asEditor(false); await renderFleet('fuel'); await wait(300);
+const fuelFor = async v => { $('fuV').value = String(v); $('fuV').dispatchEvent(new Event('change')); await wait(250); };
+await fuelFor(1);
+check(!$('fuHist').querySelector('.fuEdit') && !$('fuHist').querySelector('[data-del]'), 'staff cannot edit or remove an older fill');
+await fuelFor(2);
+check($('fuHist').querySelectorAll('.fuEdit').length === 1, 'a fill typed in today can be corrected, even for an earlier date');
+$('fuHist').querySelector('.fuEdit').click(); await wait(20);
+check($('feL').value === '40' && $('feC').value === '3800', 'the fill opens with its saved figures');
+type($('feL'), ''); n = writes.length; $('feSave').click(); await wait(80);
+check(writes.length === n, 'a fill cannot be saved without litres');
+type($('feL'), '41'); type($('feC'), '3895'); $('feSave').click(); await wait(300);
+const fuW = lastWrite('fuel_logs');
+check(fuW.op === 'update' && fuW.payload.litres === 41 && fuW.payload.cost === 3895 && fuW.where.id === 99, 'correction saved on that fill');
+await asEditor(true); await renderFleet('fuel'); await wait(300); await fuelFor(1);
+check($('fuHist').querySelectorAll('.fuEdit').length === 6, 'the editor can correct every fill');
+
+await asEditor(false); await renderFleet('tyres'); await wait(300);
+pane().querySelector('#tyMode [data-m="board"]').click(); await wait(300);
+const tyreFor = async v => { pane().querySelector(`.tbus[data-v="${v}"]`).click(); await wait(250); };
+await tyreFor(1);
+check(!$('tyHist').querySelector('.tyEdit') && !$('tyHist').querySelector('[data-del]'), 'staff cannot edit or remove an older tyre reading');
+await tyreFor(2);
+$('tyHist').querySelector('.tyEdit').click(); await wait(20);
+const tyE = $('tyHist').querySelector('tr.editing'), tyI = k => tyE.querySelector(`[data-k="${k}"]`);
+check(tyI('fl').value === '70', 'the reading opens with its saved pressures');
+['fl', 'fr', 'bl', 'br'].forEach(k => type(tyI(k), '')); n = writes.length; $('teSave').click(); await wait(80);
+check(writes.length === n, 'a reading cannot be emptied');
+['fl', 'fr', 'bl', 'br'].forEach(k => type(tyI(k), '72')); $('teSave').click(); await wait(300);
+const tyW = lastWrite('tyre_readings');
+check(tyW.op === 'update' && tyW.payload.fl === 72 && tyW.payload.br === 72 && tyW.where.id, 'correction saved on that reading');
+await asEditor(true); await renderFleet('tyres'); await wait(300);
+pane().querySelector('#tyMode [data-m="board"]').click(); await wait(300); await tyreFor(1);
+check($('tyHist').querySelector('.tyEdit') && $('tyHist').querySelector('[data-del]'), 'the editor can correct or remove an older reading');
+await asEditor(false);
 
 log('\n-- fleet week (dashboard)');
 const opened = [];

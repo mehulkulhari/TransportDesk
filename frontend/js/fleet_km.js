@@ -4,7 +4,7 @@
 // stops alerting.
 
 import { vehicles, vehicleById, vLabel, auditFields, readAudit, auditLine, fmtD, chip,
-         routeSelect, busy, today, n0, downloadCsv } from './fleetkit.js';
+         routeSelect, busy, today, n0, downloadCsv, canEdit, canEditAll, lastEdits, editLine } from './fleetkit.js';
 
 const NEED_DAYS = 5;          // normal days before a baseline is trusted
 const OVER = r => r.km > r.avg * 1.15 && r.km - r.avg > 5;   // mirrors odometer_daily.above_average
@@ -20,6 +20,9 @@ export async function renderKm(el) {
       <p class="lede">Enter each bus's odometer when it reaches school. The kilometres since the last reading
         appear as you type. Once a bus has ${NEED_DAYS} normal days on record, a day well above its normal
         (more than 15%) or well below it (under 60%) opens a <b>reason</b> box — that day keeps alerting until a reason is given.</p>
+      <p class="lede">${await canEditAll()
+        ? 'You are the authorised editor: pick any date and use <b>Edit</b> to correct its readings.'
+        : 'A reading can be corrected with <b>Edit</b> on the day it was entered. After that, only the authorised editor can change it.'}</p>
       <div class="frow" style="max-width:640px">${auditFields('km', { dateLabel: 'Reading date' })}
         <div class="field"><label for="kmFind">Find a bus</label><input id="kmFind" placeholder="Bus number, e.g. 12"/></div></div>
       <div id="kmSheet"><div class="hint">Loading…</div></div>
@@ -39,7 +42,7 @@ async function sheet(vs) {
   const on = $('km_on').value || today();
   const since = new Date(new Date(on) - 75 * 864e5).toISOString().slice(0, 10);
   const { data } = await db.from('odometer_daily')
-    .select('id,vehicle_id,bus_id,reading_km,recorded_on,km_run,gap_days,reason,provided_by')
+    .select('id,vehicle_id,bus_id,reading_km,recorded_on,km_run,gap_days,reason,provided_by,entered_at')
     .gte('recorded_on', since).lte('recorded_on', on).order('recorded_on');
   const byV = {}; (data || []).forEach(r => (byV[r.vehicle_id] = byV[r.vehicle_id] || []).push(r));
   CTX = {};
@@ -50,29 +53,70 @@ async function sheet(vs) {
     const normal = before.filter(r => r.gap_days === 1 && r.km_run >= 0).slice(-30);
     CTX[v.id] = { prev, mine, avg: normal.length ? normal.reduce((s, r) => s + +r.km_run, 0) / normal.length : null, n: normal.length };
   });
+  const edits = await lastEdits('odometer_readings', Object.values(CTX).filter(c => c.mine).map(c => c.mine.id));
   $('kmSheet').innerHTML = `<div class="tscroll"><table><thead><tr><th>Vehicle</th><th>Route covered</th>
-      <th class="num">Last reading</th><th class="num">Today's reading</th><th class="num">Km run</th><th class="num">Normal day</th><th>Reason</th></tr></thead>
+      <th class="num">Last reading</th><th class="num">Today's reading</th><th class="num">Km run</th><th class="num">Normal day</th><th>Reason</th><th></th></tr></thead>
     <tbody>${vs.map(v => { const c = CTX[v.id];
       const avg = c.n >= NEED_DAYS ? `${c.avg.toFixed(0)} km` : `<span class="muted">${c.n}/${NEED_DAYS} days</span>`;
       const last = c.prev ? `${n0(c.prev.reading_km)}<span class="audit">${fmtD(c.prev.recorded_on)}</span>` : '<span class="muted">first reading</span>';
       if (c.mine) return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}" class="done">
         <td>${esc(vLabel(v))}</td><td>${c.mine.bus_id ?? '—'}</td><td class="num">${last}</td>
-        <td class="num"><b>${n0(c.mine.reading_km)}</b><span class="audit">entered${c.mine.provided_by ? ' · ' + esc(c.mine.provided_by) : ''}</span></td>
-        <td class="num">${c.mine.km_run ?? '—'}</td><td class="num">${avg}</td><td>${c.mine.reason ? esc(c.mine.reason) : ''}</td></tr>`;
+        <td class="num"><b>${n0(c.mine.reading_km)}</b><span class="audit">entered${c.mine.provided_by ? ' · ' + esc(c.mine.provided_by) : ''}</span>${editLine(edits[c.mine.id], 'reading_km')}</td>
+        <td class="num">${c.mine.km_run ?? '—'}</td><td class="num">${avg}</td><td>${c.mine.reason ? esc(c.mine.reason) : ''}</td>
+        <td>${canEdit(c.mine) ? `<button class="b-ghost linkbtn kmEdit">Edit</button>` : ''}</td></tr>`;
       return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}">
         <td>${esc(vLabel(v))}</td><td>${routeSelect('kmr' + v.id, v.bus_id, { blank: v.is_spare ? 'Pick route…' : 'No route' })}</td>
         <td class="num">${last}</td>
         <td class="num"><input type="number" min="0" step="1" class="kmIn" style="width:110px"/></td>
         <td class="num live"></td><td class="num">${avg}</td>
-        <td><input class="kmWhy" placeholder="Why so different from normal?" hidden/></td></tr>`; }).join('')}</tbody></table></div>`;
+        <td><input class="kmWhy" placeholder="Why so different from normal?" hidden/></td><td></td></tr>`; }).join('')}</tbody></table></div>`;
   $('kmSheet').querySelectorAll('.kmIn').forEach(i => i.addEventListener('input', () => live(i.closest('tr'))));
+  $('kmSheet').querySelectorAll('.kmEdit').forEach(b => b.onclick = () => editRow(b.closest('tr'), vs));
   count();
+}
+
+/** Turn a saved row back into inputs. It keeps .done, so "Save readings" skips it. */
+function editRow(tr, vs) {
+  const vid = +tr.dataset.v, c = CTX[vid], v = vehicleById(vid), cell = tr.children;
+  tr.classList.add('editing');
+  cell[1].innerHTML = routeSelect('kmr' + vid, c.mine.bus_id, { blank: v.is_spare ? 'Pick route…' : 'No route' });
+  cell[3].innerHTML = `<input type="number" min="0" step="1" class="kmIn" style="width:110px" value="${c.mine.reading_km}"/>`;
+  cell[4].className = 'num live';
+  cell[6].innerHTML = `<input class="kmWhy" placeholder="Reason, if any" value="${esc(c.mine.reason || '')}"/>`;
+  cell[7].innerHTML = `<div style="display:flex;gap:4px"><button class="b-primary linkbtn kmUpd">Save</button><button class="b-ghost linkbtn kmNo">Cancel</button></div>`;
+  const inp = cell[3].firstChild;
+  inp.addEventListener('input', () => live(tr));
+  tr.querySelector('.kmUpd').onclick = () => saveEdit(tr, vs);
+  tr.querySelector('.kmNo').onclick = () => sheet(vs);
+  live(tr); inp.focus();
+}
+
+async function saveEdit(tr, vs) {
+  const vid = +tr.dataset.v, c = CTX[vid], v = vehicleById(vid), inp = tr.querySelector('.kmIn'), why = tr.querySelector('.kmWhy');
+  if (inp.value === '') { toast('Enter the reading', 'bad'); inp.focus(); return; }
+  const km = +inp.value, route = $('kmr' + vid).value, on = c.mine.recorded_on;
+  if (v.is_spare && !route) { toast(`Pick the route ${vLabel(v)} covered`, 'bad'); $('kmr' + vid).focus(); return; }
+  if (why.required && !why.value.trim()) { toast(`Give a reason for ${vLabel(v)}: its km is far from normal`, 'bad'); why.focus(); return; }
+  if (c.prev && km < +c.prev.reading_km &&
+      !confirm(`${vLabel(v)}: ${km} is lower than the reading before it (${c.prev.reading_km}). Save it anyway?`)) return;
+  // The next day's kilometres are worked out from this reading, so they move with it.
+  const { data: next } = await db.from('odometer_readings').select('reading_km,recorded_on')
+    .eq('vehicle_id', vid).eq('active', true).gt('recorded_on', on).order('recorded_on').limit(1).maybeSingle();
+  if (next && km > +next.reading_km &&
+      !confirm(`${vLabel(v)}: ${km} is higher than the next reading (${next.reading_km} on ${fmtD(next.recorded_on)}). Save it anyway?`)) return;
+  const btn = tr.querySelector('.kmUpd'); busy(btn, true);
+  const { error } = await db.from('odometer_readings').update({ reading_km: km, bus_id: route ? +route : null, reason: why.value.trim() || null }).eq('id', c.mine.id);
+  busy(btn, false);
+  if (error) { toast(error.message, 'bad'); return; }
+  toast(next ? `Reading corrected. ${fmtD(next.recorded_on)}'s km changes with it` : 'Reading corrected', 'good');
+  await Promise.all([sheet(vs), extraDays()]);
 }
 
 function live(tr) {
   const c = CTX[+tr.dataset.v], v = tr.querySelector('.kmIn').value, why = tr.querySelector('.kmWhy');
   const cell = tr.querySelector('.live');
-  tr.classList.remove('reasonrow'); why.hidden = true; why.required = false;
+  // a row being corrected always shows its reason box, so a reason can be changed or cleared
+  tr.classList.remove('reasonrow'); why.hidden = !tr.classList.contains('editing'); why.required = false;
   if (v === '') { cell.textContent = ''; count(); return; }
   if (!c.prev) { cell.innerHTML = '<span class="muted">starts the record</span>'; count(); return; }
   const km = +v - +c.prev.reading_km;
@@ -88,7 +132,7 @@ function live(tr) {
 }
 
 function count() {
-  const n = [...document.querySelectorAll('#kmSheet .kmIn')].filter(i => i.value !== '').length;
+  const n = [...document.querySelectorAll('#kmSheet tr:not(.done) .kmIn')].filter(i => i.value !== '').length;
   $('kmCount').textContent = `${n} bus${n === 1 ? '' : 'es'} filled in`;
 }
 

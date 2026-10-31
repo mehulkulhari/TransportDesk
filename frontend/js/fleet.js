@@ -2,7 +2,7 @@
 // This file is the shell (sub-navigation) and the Overview; each tab lives in its
 // own fleet_*.js module and exposes render(el).
 
-import { vehicles, staffList, vLabel, vehicleById, n0, fmtD, chip } from './fleetkit.js';
+import { vehicles, staffList, canEditAll, vLabel, vehicleById, n0, fmtD, chip } from './fleetkit.js';
 import { renderFleetWeek } from './fleet_week.js';
 import { renderTyres } from './fleet_tyres.js';
 import { renderKm } from './fleet_km.js';
@@ -57,7 +57,7 @@ export async function renderFleet(tab) {
   try { localStorage.setItem('fleetTab', current); } catch (e) { /* ignore */ }
   const body = $('fleetBody');
   body.innerHTML = `<div class="subnav" id="fleetNav"></div><div id="fleetPane"><div class="hint">Loading…</div></div>`;
-  await Promise.all([vehicles(), staffList()]);
+  await Promise.all([vehicles(), staffList(), canEditAll()]);
   drawNav();
   const pane = $('fleetPane');
   try { await RENDER[current](pane); }

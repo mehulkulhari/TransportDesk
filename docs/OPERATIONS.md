@@ -100,6 +100,23 @@ gets one link per 10 drops, each starting where the last ended. Links open prope
 the Google Maps app; a phone's web browser shows only the first three stops. The links
 carry children's home locations — send them only to that bus's driver.
 
+### Correcting entries
+
+A wrong tyre, km or fuel entry is corrected with **Edit** beside it. Anyone can do that
+on the day the entry was typed in; after that only the authorised editor can, and they
+reach an old km reading by picking its date on **Fleet → Daily km**. Every correction is
+kept with its old value and who made it, in `fleet_edit_log`, and shows under the entry.
+
+The authorised editor is held in the database, not in this repository, because the
+repository is public. To change who it is, run this in the Supabase SQL editor (the
+person must already have a login):
+
+```sql
+delete from fleet_record_editors;
+insert into fleet_record_editors (user_id)
+select id from auth.users where lower(email) = lower('their-login@example.org');
+```
+
 ## 2. Maintenance routine
 
 Ordered by how quickly the thing being checked turns into a real problem.

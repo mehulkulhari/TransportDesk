@@ -2,10 +2,11 @@
 // vehicle, and the fortnightly entry sheet.
 
 import { vehicles, vehicleById, vLabel, auditFields, readAudit, auditLine, fmtD, chip,
-         routeSelect, deactivate, busy, today, n0 } from './fleetkit.js';
+         routeSelect, deactivate, busy, today, n0, canEdit, lastEdits, editLine } from './fleetkit.js';
 
 const POS = [['fl', 'FL', 'Front left'], ['fr', 'FR', 'Front right'], ['bl', 'BL', 'Back left'], ['br', 'BR', 'Back right']];
-let mode = 'board', focusVehicle = null;
+const PAGE = 20;
+let mode = 'board', focusVehicle = null, shown = PAGE;
 
 /** How far one tyre is from its recommended pressure, as a colour. Mirrors tyre_status. */
 function tone(v, rec) {
@@ -75,24 +76,52 @@ async function drawBoard(body, root) {
 }
 
 async function history(vid, root) {
+  if (vid !== focusVehicle) shown = PAGE;
   focusVehicle = vid;
   const v = vehicleById(vid);
   const { data } = await db.from('tyre_readings').select('*').eq('vehicle_id', vid).eq('active', true)
-    .order('recorded_on', { ascending: false }).limit(20);
+    .order('recorded_on', { ascending: false }).limit(shown);
+  const rows = data || [], edits = await lastEdits('tyre_readings', rows.map(r => r.id));
   $('tyHist').innerHTML = `<div class="fcard"><h3>${esc(vLabel(v))} — pressure history</h3>
-    <p class="lede">Most recent first. A wrong entry can be removed; it stays in the record as removed.</p>
+    <p class="lede">Most recent first. A wrong entry can be corrected or removed on the day it was entered; after that,
+      only by the authorised editor. A removed entry stays in the record as removed.</p>
     <div class="tscroll"><table><thead><tr><th>Date</th><th class="num">FL</th><th class="num">FR</th><th class="num">BL</th><th class="num">BR</th><th>Route</th><th>Source</th><th></th></tr></thead>
-    <tbody>${(data || []).map(r => `<tr><td>${fmtD(r.recorded_on)}</td>
+    <tbody>${rows.map(r => `<tr data-id="${r.id}"><td>${fmtD(r.recorded_on)}</td>
       ${POS.map(([k]) => `<td class="num">${r[k] ?? '–'}</td>`).join('')}
-      <td>${r.bus_id ?? '—'}</td><td>${auditLine(r)}${r.notes ? `<span class="audit">${esc(r.notes)}</span>` : ''}</td>
-      <td><button class="b-ghost linkbtn" data-del="${r.id}">Remove</button></td></tr>`).join('')
+      <td>${r.bus_id ?? '—'}</td><td>${auditLine(r)}${r.notes ? `<span class="audit">${esc(r.notes)}</span>` : ''}${editLine(edits[r.id])}</td>
+      <td>${canEdit(r) ? `<div style="display:flex;gap:4px"><button class="b-ghost linkbtn tyEdit" data-id="${r.id}">Edit</button><button class="b-ghost linkbtn" data-del="${r.id}">Remove</button></div>` : ''}</td></tr>`).join('')
       || '<tr><td colspan="8" class="muted">No readings yet.</td></tr>'}</tbody></table></div>
-    <div class="actions"><button class="b-primary" id="tyAddOne">Enter a reading for this bus</button></div></div>`;
+    <div class="actions"><button class="b-primary" id="tyAddOne">Enter a reading for this bus</button>
+      ${rows.length === shown ? '<button class="b-ghost" id="tyMore">Show older readings</button>' : ''}</div></div>`;
+  if ($('tyMore')) $('tyMore').onclick = () => { shown += 50; history(vid, root); };
+  $('tyHist').querySelectorAll('.tyEdit').forEach(b => b.onclick = () => editReading(b.closest('tr'), rows.find(r => r.id === +b.dataset.id), root));
   $('tyHist').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
     if (await deactivate('tyre_readings', b.dataset.del, 'reading')) renderTyres(root);
   });
   $('tyAddOne').onclick = () => { mode = 'entry'; renderTyres(root); };
   $('tyHist').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/** Correct a saved reading in place; the board and the alerts recalculate from it. */
+function editReading(tr, r, root) {
+  const cell = tr.children;
+  tr.className = 'editing';
+  POS.forEach(([k], i) => cell[i + 1].innerHTML = `<input type="number" min="0" max="250" step="1" data-k="${k}" value="${r[k] ?? ''}" style="width:64px"/>`);
+  cell[5].innerHTML = routeSelect('teR', r.bus_id);
+  cell[6].innerHTML = `<input id="teN" placeholder="Notes" value="${esc(r.notes || '')}"/>`;
+  cell[7].innerHTML = `<div style="display:flex;gap:4px"><button class="b-primary linkbtn" id="teSave">Save</button><button class="b-ghost linkbtn" id="teNo">Cancel</button></div>`;
+  $('teNo').onclick = () => history(r.vehicle_id, root);
+  $('teSave').onclick = async () => {
+    const vals = {}; POS.forEach(([k]) => { const x = tr.querySelector(`[data-k="${k}"]`).value; vals[k] = x === '' ? null : +x; });
+    const list = Object.values(vals).filter(x => x != null);
+    if (!list.length) { toast('Enter at least one tyre', 'bad'); return; }
+    if (list.some(x => x < 0 || x > 250)) { toast('A pressure must be between 0 and 250', 'bad'); return; }
+    busy($('teSave'), true);
+    const route = $('teR').value;
+    const { error } = await db.from('tyre_readings').update({ ...vals, bus_id: route ? +route : null, notes: $('teN').value.trim() || null }).eq('id', r.id);
+    if (error) { busy($('teSave'), false); toast(error.message, 'bad'); return; }
+    toast('Reading corrected', 'good'); renderTyres(root);
+  };
 }
 
 // ---------------------------------------------------------------- specs

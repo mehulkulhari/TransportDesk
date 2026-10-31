@@ -6,10 +6,12 @@
 // app divides by. The fleet table below shows where the two disagree.
 
 import { vehicles, vehicleById, vLabel, vehicleSelect, routeSelect, bindVehicleRoute, auditFields,
-         readAudit, auditLine, fmtD, chip, num, val, busy, today, n0, deactivate, downloadCsv } from './fleetkit.js';
+         readAudit, auditLine, fmtD, chip, num, val, busy, today, n0, deactivate, downloadCsv,
+         canEdit, lastEdits, editLine } from './fleetkit.js';
 
 const TOL = 0.15;
-let sel = null;
+const PAGE = 15;
+let sel = null, shown = PAGE;
 
 export async function renderFuel(el) {
   const vs = await vehicles();
@@ -35,7 +37,7 @@ export async function renderFuel(el) {
       <div class="actions"><button class="b-primary" id="fuSave">Save fill</button></div></div>
     <div class="fstack"><div class="fcard" id="fuHist"></div><div class="fcard" id="fuFleet"></div></div></div>`;
   bindVehicleRoute('fuV', 'fuR');
-  $('fuV').onchange = () => { sel = +$('fuV').value; history(); liveCalc(); };
+  $('fuV').onchange = () => { sel = +$('fuV').value; shown = PAGE; history(); liveCalc(); };
   const recost = () => { const l = num('fuL'), p = num('fuP');
     if (l && p && !$('fuC').dataset.touched) $('fuC').value = (l * p).toFixed(2); liveCalc(); };
   $('fuL').oninput = recost; $('fuP').oninput = recost;
@@ -50,8 +52,9 @@ export async function renderFuel(el) {
 let HIST = [];
 async function history() {
   const { data } = await db.from('fuel_efficiency').select('*').eq('vehicle_id', sel)
-    .order('recorded_on', { ascending: false }).order('id', { ascending: false }).limit(15);
+    .order('recorded_on', { ascending: false }).order('id', { ascending: false }).limit(shown);
   HIST = data || [];
+  const edits = await lastEdits('fuel_logs', HIST.map(r => r.id));
   const v = vehicleById(sel), withK = HIST.filter(r => r.kmpl != null);
   const avg = withK.length ? withK.slice(0, 10).reduce((s, r) => s + +r.kmpl, 0) / Math.min(10, withK.length) : null;
   const ref = HIST[0]?.reference_kmpl;
@@ -60,13 +63,16 @@ async function history() {
       ${ref ? ` The cost analysis assumes <b>${ref} km/L</b>.` : ''}</p>
     <div class="tscroll"><table><thead><tr><th>Date</th><th class="num">Litres</th><th class="num">₹/L</th><th class="num">Cost</th>
       <th class="num">Odometer</th><th class="num">Km</th><th class="num">km/L</th><th class="num">vs normal</th><th>Reason / source</th><th></th></tr></thead>
-    <tbody>${HIST.map(r => `<tr class="${r.deviated && !r.reason ? 'reasonrow' : ''}"><td>${fmtD(r.recorded_on)}</td>
+    <tbody>${HIST.map(r => `<tr data-id="${r.id}" class="${r.deviated && !r.reason ? 'reasonrow' : ''}"><td>${fmtD(r.recorded_on)}</td>
       <td class="num">${r.litres}</td><td class="num">${r.price_per_litre ?? '—'}</td><td class="num">${r.cost_effective != null ? rs(Math.round(r.cost_effective)) : '—'}</td>
       <td class="num">${n0(r.odo_at_fill)}</td><td class="num">${n0(r.km_since_fill)}</td><td class="num"><b>${r.kmpl ?? '—'}</b></td>
       <td class="num">${r.deviation_pct != null ? (r.deviated ? chip('due_soon', (r.deviation_pct > 0 ? '+' : '') + r.deviation_pct + '%') : (r.deviation_pct > 0 ? '+' : '') + r.deviation_pct + '%') : ''}</td>
-      <td>${r.reason ? esc(r.reason) : r.deviated ? `<div style="display:flex;gap:6px"><input class="why" data-id="${r.id}" placeholder="Reason"/><button class="b-ghost linkbtn addWhy" data-id="${r.id}">Save</button></div>` : ''}${auditLine(r)}</td>
-      <td><button class="b-ghost linkbtn" data-del="${r.id}">Remove</button></td></tr>`).join('')
-      || '<tr><td colspan="10" class="muted">No fills recorded for this vehicle.</td></tr>'}</tbody></table></div>`;
+      <td>${r.reason ? esc(r.reason) : r.deviated ? `<div style="display:flex;gap:6px"><input class="why" data-id="${r.id}" placeholder="Reason"/><button class="b-ghost linkbtn addWhy" data-id="${r.id}">Save</button></div>` : ''}${auditLine(r)}${editLine(edits[r.id])}</td>
+      <td>${canEdit(r) ? `<div style="display:flex;gap:4px"><button class="b-ghost linkbtn fuEdit" data-id="${r.id}">Edit</button><button class="b-ghost linkbtn" data-del="${r.id}">Remove</button></div>` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="10" class="muted">No fills recorded for this vehicle.</td></tr>'}</tbody></table></div>
+    ${HIST.length === shown ? '<div class="actions"><button class="b-ghost linkbtn" id="fuMore">Show older fills</button></div>' : ''}`;
+  if ($('fuMore')) $('fuMore').onclick = () => { shown += 50; history(); };
+  $('fuHist').querySelectorAll('.fuEdit').forEach(b => b.onclick = () => editFill(b.closest('tr'), HIST.find(r => r.id === +b.dataset.id)));
   $('fuHist').querySelectorAll('.addWhy').forEach(b => b.onclick = async () => {
     const why = $('fuHist').querySelector(`.why[data-id="${b.dataset.id}"]`).value.trim();
     if (!why) { toast('Write the reason first', 'bad'); return; }
@@ -78,6 +84,32 @@ async function history() {
     if (await deactivate('fuel_logs', b.dataset.del, 'fill')) { history(); fleet(); }
   });
   liveCalc();
+}
+
+/** Correct a saved fill in place. Mileage, the normal and the alerts all recalculate from it. */
+function editFill(tr, r) {
+  const f = (id, label, v, attrs = '') => `<div class="field"><label for="${id}">${label}</label><input id="${id}" value="${esc(v ?? '')}" ${attrs}/></div>`;
+  const n = 'type="number" min="0" step="0.01"';
+  tr.className = 'editing';
+  tr.innerHTML = `<td colspan="10"><b>Correct the fill of ${fmtD(r.recorded_on)}</b>
+    <div class="frow" style="margin-top:8px">${f('feL', 'Litres', r.litres, n)}${f('feP', 'Price per litre (₹)', r.price_per_litre, n)}
+      ${f('feC', 'Cost (₹)', r.cost, n)}${f('feO', 'Odometer at fill', r.odo_at_fill, 'type="number" min="0" step="1"')}</div>
+    <div class="frow"><div class="field"><label for="feR">Route covered</label>${routeSelect('feR', r.bus_id)}</div>
+      ${f('feS', 'Filling station', r.station)}${f('feWhy', 'Reason', r.reason)}${f('feN', 'Notes', r.notes)}</div>
+    <div class="actions"><button class="b-primary" id="feSave">Save correction</button><button class="b-ghost" id="feNo">Cancel</button></div></td>`;
+  $('feNo').onclick = () => history();
+  $('feSave').onclick = async () => {
+    const l = num('feL'), p = num('feP'), c = num('feC');
+    if (!l || l <= 0) { toast('Enter the litres filled', 'bad'); $('feL').focus(); return; }
+    if (p && c && Math.abs(l * p - c) / c > 0.02 &&
+        !confirm(`Litres × price is ₹${(l * p).toFixed(0)} but the cost entered is ₹${c.toFixed(0)}. The cost from the bill will be used. Continue?`)) return;
+    busy($('feSave'), true);
+    const route = $('feR').value;
+    const { error } = await db.from('fuel_logs').update({ litres: l, price_per_litre: p, cost: c, odo_at_fill: num('feO'),
+      bus_id: route ? +route : null, station: val('feS'), reason: val('feWhy'), notes: val('feN') }).eq('id', r.id);
+    if (error) { busy($('feSave'), false); toast(error.message, 'bad'); return; }
+    toast('Fill corrected', 'good'); history(); fleet();
+  };
 }
 
 /** Mileage of the fill being typed, against this vehicle's normal. */

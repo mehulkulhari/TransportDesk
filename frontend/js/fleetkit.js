@@ -6,7 +6,7 @@ import { csvCell } from './utils.js';
 // thing: vehicles move between routes, and a spare bus has no route of its own
 // until it stands in for one. See supabase/migrations/20260924000000_*.sql.
 
-let VEH = null, STAFF = null;
+let VEH = null, STAFF = null, EDIT_ALL = null;
 
 export const today = () => {
   const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -151,6 +151,37 @@ export function downloadCsv(name, cols, rows) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
   a.download = name + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// Who may correct what. The database enforces this (fleet_guard_log_edit); these only
+// decide which buttons to show, so a change here cannot widen what anyone can do.
+/** Is the signed-in person the authorised editor, who can correct entries of any date? */
+export async function canEditAll(force) {
+  if (EDIT_ALL == null || force) {
+    const { data, error } = await db.rpc('fleet_can_edit_all');
+    EDIT_ALL = !error && data === true;
+  }
+  return EDIT_ALL;
+}
+const istDay = t => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+/** Anyone can correct an entry on the day it was typed in; after that, only the editor. */
+export function canEdit(r) {
+  const now = istDay(Date.now());
+  return EDIT_ALL === true || r.recorded_on === now || (!!r.entered_at && istDay(r.entered_at) === now);
+}
+/** The latest correction of each row, keyed by row id: shown so an edit is never silent. */
+export async function lastEdits(table, ids) {
+  if (!ids.length) return {};
+  const { data } = await db.from('fleet_edit_log').select('row_id,changes,edited_by_email,edited_at')
+    .eq('table_name', table).in('row_id', ids).order('edited_at', { ascending: false });
+  const by = {}; (data || []).forEach(e => by[e.row_id] = by[e.row_id] || e);
+  return by;
+}
+export function editLine(e, field) {
+  if (!e) return '';
+  const was = field && e.changes?.[field]?.from;
+  const when = new Date(e.edited_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return `<span class="audit">edited${e.edited_by_email ? ' by ' + esc(e.edited_by_email) : ''} · ${when}${was != null ? ' · was ' + n0(was) : ''}</span>`;
 }
 
 export function busy(btn, on, label) {

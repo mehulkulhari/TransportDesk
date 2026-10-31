@@ -4,6 +4,7 @@
 
 const T = {};
 const iso = d => new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
+const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const V = [
   { id: 1, reg_no: 'TEST 0001', bus_id: 1, is_spare: false, make: 'Eicher', model_year: 2012, seats: 42, tyre_size: '8.25-16 LT', active: true, annual_maintenance_declared: 90000 },
   { id: 2, reg_no: 'TEST 0002', bus_id: 2, is_spare: false, make: 'Tata', model_year: 2017, seats: 36, tyre_size: '7.50-16 LT', active: true, annual_maintenance_declared: 45000 },
@@ -31,7 +32,7 @@ T.staff_assignments = [
 const spec = { 1: [75, 75, 88, 88], 2: [70, 70, 85, 85], 3: [70, 70, 85, 85], 4: [85, 85, 92, 92], 5: [70, 70, 85, 85] };
 T.tyre_specs = Object.entries(spec).map(([v, r]) => ({ vehicle_id: +v, rec_fl: r[0], rec_fr: r[1], rec_bl: r[2], rec_br: r[3], source: v === '1' ? 'placard' : 'inferred', provided_by: 'Estimated from tyre size' }));
 const read = { 1: [60, 50, 50, 55, 28], 2: [70, 70, 84, 86, 3], 3: [60, 65, null, 50, 20], 4: [100, 110, null, null, 28] };
-T.tyre_readings = Object.entries(read).map(([v, r], i) => ({ id: i + 1, vehicle_id: +v, bus_id: V[+v - 1].bus_id, fl: r[0], fr: r[1], bl: r[2], br: r[3], recorded_on: iso(r[4]), provided_by: 'Mechanic', entered_by_email: 'office@school.in', entered_at: new Date().toISOString(), active: true }));
+T.tyre_readings = Object.entries(read).map(([v, r], i) => ({ id: i + 1, vehicle_id: +v, bus_id: V[+v - 1].bus_id, fl: r[0], fr: r[1], bl: r[2], br: r[3], recorded_on: iso(r[4]), provided_by: 'Mechanic', entered_by_email: 'office@school.in', entered_at: v === '2' ? new Date().toISOString() : iso(r[4]) + 'T08:00:00Z', active: true }));
 T.tyre_status = V.map(v => {
   const r = T.tyre_readings.find(x => x.vehicle_id === v.id), s = T.tyre_specs.find(x => x.vehicle_id === v.id) || {};
   const dev = k => r && r[k] != null && s['rec_' + k] ? Math.round(1000 * (r[k] - s['rec_' + k]) / s['rec_' + k]) / 10 : null;
@@ -54,7 +55,14 @@ let oid = 1;
       extra_km: d === 2 && v === 1 ? 43 : null, reason: null, provided_by: 'Driver', entered_by_email: 'office@school.in', active: true }); } });
 T.odometer_daily.push({ id: oid++, vehicle_id: 5, bus_id: 2, reading_km: 50000, recorded_on: iso(5), km_run: null, gap_days: null, reason: 'Covered bus 2 — breakdown', active: true });
 T.odometer_daily.push({ id: oid++, vehicle_id: 5, bus_id: 2, reading_km: 50061, recorded_on: iso(4), km_run: 61, gap_days: 1, reason: 'Covered bus 2 — breakdown', active: true });
+// Bus 58: eight normal days, then a reading typed in today
+{ let km = 90000;
+  for (let d = 8; d >= 1; d--) { km += 40; T.odometer_daily.push({ id: oid++, vehicle_id: 4, bus_id: 58, reading_km: km, recorded_on: iso(d), km_run: d === 8 ? null : 40,
+    gap_days: d === 8 ? null : 1, reason: null, provided_by: 'Driver', active: true, entered_at: iso(d) + 'T08:00:00Z' }); }
+  T.odometer_daily.push({ id: oid++, vehicle_id: 4, bus_id: 58, reading_km: km + 42, recorded_on: localToday, km_run: 42, gap_days: 1, reason: null, provided_by: 'Driver',
+    active: true, entered_at: new Date().toISOString() }); }
 T.odometer_readings = T.odometer_daily;
+T.fleet_edit_log = [{ table_name: 'odometer_readings', row_id: oid - 1, changes: { reading_km: { from: 90100, to: 90362 } }, edited_by_email: 'office@school.in', edited_at: new Date().toISOString() }];
 T.fuel_efficiency = [];
 [[1, 3.9], [2, 5.53]].forEach(([v, ref]) => { let odo = 80000;
   for (let i = 0; i < 6; i++) { const L = 40, k = i === 5 && v === 1 ? 3.1 : 4.8 + (i % 2) * 0.2; const prev = odo; odo += Math.round(L * k);
@@ -62,6 +70,9 @@ T.fuel_efficiency = [];
       odo_at_fill: odo, km_since_fill: i ? odo - prev : null, kmpl: i ? Math.round(100 * (odo - prev) / L) / 100 : null, avg_kmpl_r: i > 1 ? 4.9 : null,
       deviation_pct: i === 5 && v === 1 ? -36.7 : i > 1 ? 1 : null, deviated: i === 5 && v === 1, reason: null, reference_kmpl: ref, station: 'Test Filling Station',
       provided_by: 'Driver', entered_by_email: 'office@school.in', active: true }); } });
+// a late entry typed in today for an earlier date
+T.fuel_efficiency.push({ id: 99, vehicle_id: 2, bus_id: 2, recorded_on: iso(3), litres: 40, price_per_litre: 95, cost: 3800, cost_effective: 3800, odo_at_fill: 80900,
+  km_since_fill: 200, kmpl: 5, avg_kmpl_r: 4.9, deviation_pct: 2, deviated: false, reason: null, reference_kmpl: 5.53, station: 'Test Filling Station', active: true, entered_at: new Date().toISOString() });
 T.fuel_logs = T.fuel_efficiency;
 T.service_plans = V.map(v => ({ vehicle_id: v.id, interval_km: 20000, interval_days: v.id === 2 ? 180 : null, notes: 'From the service sheet' }));
 T.service_events = [{ id: 1, vehicle_id: 1, recorded_on: null, odo_km: 67115, active: true, notes: 'Service date not recorded on the sheet.' },
@@ -148,11 +159,15 @@ const weekReport = p => {
 
 const EMBED = { staff: ['staff_id', 'staff'], checkup_parts: ['part_id', 'checkup_parts'], vehicles: ['vehicle_id', 'vehicles'] };
 export const writes = [];
+let editor = false, refuse = null;
+export const setEditor = on => { editor = on; };
+export const refuseNextWrite = msg => { refuse = msg; };
 
 class Q {
   constructor(t) { this.t = t; this.f = []; this.o = []; this.lim = null; this.one = null; this.op = 'select'; this.sel = '*'; }
   select(s) { if (this.op === 'select') this.sel = s || '*'; this.ret = true; return this; }
-  eq(c, v) { this.f.push(r => r[c] == v); return this; }
+  eq(c, v) { this.f.push(r => r[c] == v); (this.where = this.where || {})[c] = v; return this; }
+  gt(c, v) { this.f.push(r => r[c] != null && r[c] > v); return this; }
   neq(c, v) { this.f.push(r => r[c] != v); return this; }
   gte(c, v) { this.f.push(r => r[c] != null && r[c] >= v); return this; }
   lte(c, v) { this.f.push(r => r[c] != null && r[c] <= v); return this; }
@@ -174,7 +189,8 @@ class Q {
   then(res, rej) { return Promise.resolve(this.run()).then(res, rej); }
   run() {
     if (this.op !== 'select') {
-      writes.push({ table: this.t, op: this.op, payload: this.payload });
+      if (refuse) { const message = refuse; refuse = null; return { data: null, error: { message } }; }
+      writes.push({ table: this.t, op: this.op, payload: this.payload, where: this.where });
       const rows = [].concat(this.payload).map((r, i) => ({ id: 900 + writes.length + i, ...r }));
       return { data: this.one ? rows[0] : rows, error: null };
     }
@@ -191,7 +207,8 @@ class Q {
 export const fakeDb = {
   from: t => new Q(t),
   rpc: (name, args) => { rpcCalls.push([name, args]); return Promise.resolve(
-    name === 'fleet_week_trend' ? { data: Array.from({ length: args.p_weeks }, (_, j) => args.p_weeks - 1 - j).map(i => ({ week_start: wk(i), kpis: K(i) })), error: null }
+    name === 'fleet_can_edit_all' ? { data: editor, error: null }
+    : name === 'fleet_week_trend' ? { data: Array.from({ length: args.p_weeks }, (_, j) => args.p_weeks - 1 - j).map(i => ({ week_start: wk(i), kpis: K(i) })), error: null }
     : name === 'fleet_week_report' ? { data: weekReport(args.p_week), error: null }
     : name === 'staff_tenure_report' ? { data: {
     staff: T.staff.find(s => s.id === args.p_staff), documents: [{ doc_type: 'Driving licence', doc_number: 'DL-TEST-1', expires_on: iso(-86), status: 'expired' }],
