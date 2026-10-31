@@ -60,7 +60,7 @@ grant execute on function public.fleet_can_edit_all() to authenticated;
 create or replace function public.fleet_guard_log_edit() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
-  o jsonb; n jsonb; changed jsonb;
+  o jsonb; n jsonb; changed jsonb; allowed boolean;
   today date := public.fleet_today();
 begin
   -- who typed it and when is the record itself, not something an edit can change
@@ -73,12 +73,14 @@ begin
   where nv.value is distinct from ov.value;
   if changed is null then return new; end if;
 
+  -- Worked out as "allowed" and refused unless it is plainly true, so that a NULL
+  -- anywhere in here denies rather than lets the edit through.
+  allowed := old.recorded_on = today
+    or (old.entered_at at time zone 'Asia/Kolkata')::date = today
+    or public.fleet_can_edit_all()
+    or (changed - 'reason' = '{}'::jsonb and coalesce(btrim(o ->> 'reason'), '') = '');
   -- auth.uid() is null only for a direct database session, never through the API
-  if auth.uid() is not null
-     and old.recorded_on <> today
-     and (old.entered_at at time zone 'Asia/Kolkata')::date <> today
-     and not public.fleet_can_edit_all()
-     and not (changed - 'reason' = '{}'::jsonb and coalesce(btrim(o ->> 'reason'), '') = '') then
+  if auth.uid() is not null and allowed is not true then
     raise exception 'This entry can only be changed on the day it was entered. After that, ask the authorised editor.'
       using errcode = '42501';
   end if;
