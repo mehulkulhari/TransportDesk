@@ -102,10 +102,12 @@ carry children's home locations — send them only to that bus's driver.
 
 ### Correcting entries
 
-A wrong tyre, km or fuel entry is corrected with **Edit** beside it. Anyone can do that
-on the day the entry was typed in; after that only the authorised editor can, and they
-reach an old km reading by picking its date on **Fleet → Daily km**. Every correction is
-kept with its old value and who made it, in `fleet_edit_log`, and shows under the entry.
+Staff enter tyre, km and fuel readings for today, and can correct today's with **Edit**.
+Anything for an earlier date is the authorised editor's: filling in a missed entry, and
+changing or removing an old one. They pick the date on **Fleet → Daily km**, or use the
+date box on Fuel and Tyres. A bill that reaches the office after the day of the fill
+therefore goes through them. Every correction is kept with its old value and who made
+it, in `fleet_edit_log`, and shows under the entry.
 
 The authorised editor is held in the database, not in this repository, because the
 repository is public. To change who it is, run this in the Supabase SQL editor (the

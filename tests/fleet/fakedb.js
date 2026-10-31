@@ -44,6 +44,8 @@ T.tyre_status = V.map(v => {
     imbalanced: v.id === 3, stale: !r || (Date.now() - new Date(r.recorded_on)) / 864e5 > 15,
     status: !r ? 'no_reading' : lo <= -30 || hi >= 25 ? 'unsafe' : lo <= -10 ? 'low' : hi >= 10 ? 'high' : 'ok' };
 });
+// a check dated today, the only tyre entry staff can still correct
+T.tyre_readings.push({ id: 50, vehicle_id: 2, bus_id: 2, fl: 70, fr: 70, bl: 84, br: 86, recorded_on: localToday, provided_by: 'Mechanic', active: true, entered_at: new Date().toISOString() });
 // ten days of odometer readings, with one extra-long day and one spare cover
 T.odometer_daily = [];
 let oid = 1;
@@ -70,8 +72,9 @@ T.fuel_efficiency = [];
       odo_at_fill: odo, km_since_fill: i ? odo - prev : null, kmpl: i ? Math.round(100 * (odo - prev) / L) / 100 : null, avg_kmpl_r: i > 1 ? 4.9 : null,
       deviation_pct: i === 5 && v === 1 ? -36.7 : i > 1 ? 1 : null, deviated: i === 5 && v === 1, reason: null, reference_kmpl: ref, station: 'Test Filling Station',
       provided_by: 'Driver', entered_by_email: 'office@school.in', active: true }); } });
-// a late entry typed in today for an earlier date
-T.fuel_efficiency.push({ id: 99, vehicle_id: 2, bus_id: 2, recorded_on: iso(3), litres: 40, price_per_litre: 95, cost: 3800, cost_effective: 3800, odo_at_fill: 80900,
+// a late entry typed in today for an earlier date stays locked; today's fill does not
+T.fuel_efficiency.push({ id: 98, vehicle_id: 2, bus_id: 2, recorded_on: iso(3), litres: 40, price_per_litre: 95, cost: 3800, cost_effective: 3800, odo_at_fill: 80700, active: true, entered_at: new Date().toISOString() });
+T.fuel_efficiency.push({ id: 99, vehicle_id: 2, bus_id: 2, recorded_on: localToday, litres: 40, price_per_litre: 95, cost: 3800, cost_effective: 3800, odo_at_fill: 80900,
   km_since_fill: 200, kmpl: 5, avg_kmpl_r: 4.9, deviation_pct: 2, deviated: false, reason: null, reference_kmpl: 5.53, station: 'Test Filling Station', active: true, entered_at: new Date().toISOString() });
 T.fuel_logs = T.fuel_efficiency;
 T.service_plans = V.map(v => ({ vehicle_id: v.id, interval_km: 20000, interval_days: v.id === 2 ? 180 : null, notes: 'From the service sheet' }));

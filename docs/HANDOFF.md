@@ -70,7 +70,7 @@ sql/               tables, views, functions, policies, reports — the source of
   ARCHIVED.md      what was moved out of the live schema on 2026-09-03, and why
 supabase/          config and migrations
 python/            coordinate and routing helpers
-tests/fleet/       regression tests for the Fleet screens, the Overview's fleet week and correcting entries (128 checks, no login needed)
+tests/fleet/       regression tests for the Fleet screens, the Overview's fleet week and correcting entries (137 checks, no login needed)
 tests/studentlist/ regression tests for Reports -> Bus-wise list, its CSV, and the Optimisation tab (29 checks)
 tests/planner/     regression tests for the Planner: class picker, splitting, Maps links (23 checks)
 docs/              this file, FLEET.md (the fleet module), ARCHITECTURE.md (how it is built and why),

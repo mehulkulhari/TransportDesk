@@ -70,10 +70,10 @@ export function bindVehicleRoute(vehId, routeId) {
 }
 
 /** The "date" and "data provided by" pair that every entry in the fleet module carries. */
-export function auditFields(prefix, { date = today(), dateLabel = 'Date', who = '' } = {}) {
+export function auditFields(prefix, { date = today(), dateLabel = 'Date', who = '', todayOnly = false } = {}) {
   const names = (STAFF || []).map(s => `<option value="${esc(s.name)}">`).join('');
   return `<div class="field"><label for="${prefix}_on">${esc(dateLabel)}</label>
-      <input id="${prefix}_on" type="date" value="${date}" max="${today()}"/></div>
+      <input id="${prefix}_on" type="date" value="${date}" max="${today()}" ${todayOnly && EDIT_ALL !== true ? `min="${today()}" title="${esc(OLD_ENTRY)}"` : ''}/></div>
     <div class="field"><label for="${prefix}_by">Data provided by</label>
       <input id="${prefix}_by" list="${prefix}_names" value="${esc(who)}" placeholder="Driver, mechanic, accounts…"/>
       <datalist id="${prefix}_names">${names}</datalist></div>`;
@@ -163,12 +163,13 @@ export async function canEditAll(force) {
   }
   return EDIT_ALL;
 }
-const istDay = t => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-/** Anyone can correct an entry on the day it was typed in; after that, only the editor. */
-export function canEdit(r) {
-  const now = istDay(Date.now());
-  return EDIT_ALL === true || r.recorded_on === now || (!!r.entered_at && istDay(r.entered_at) === now);
-}
+const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+export const OLD_ENTRY = 'Only the authorised editor can fill in an entry for an earlier date';
+export const isEditor = () => EDIT_ALL === true;
+/** Staff enter today's date only; a missed entry is the editor's to fill in. */
+export const mayEnterDate = d => EDIT_ALL === true || d === istToday();
+/** Anyone can correct an entry on its own day; after that, only the editor. */
+export const canEdit = r => EDIT_ALL === true || r.recorded_on === istToday();
 /** The latest correction of each row, keyed by row id: shown so an edit is never silent. */
 export async function lastEdits(table, ids) {
   if (!ids.length) return {};

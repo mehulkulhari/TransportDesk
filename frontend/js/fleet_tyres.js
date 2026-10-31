@@ -2,7 +2,7 @@
 // vehicle, and the fortnightly entry sheet.
 
 import { vehicles, vehicleById, vLabel, auditFields, readAudit, auditLine, fmtD, chip,
-         routeSelect, deactivate, busy, today, n0, canEdit, lastEdits, editLine } from './fleetkit.js';
+         routeSelect, deactivate, busy, today, n0, canEdit, isEditor, mayEnterDate, OLD_ENTRY, lastEdits, editLine } from './fleetkit.js';
 
 const POS = [['fl', 'FL', 'Front left'], ['fr', 'FR', 'Front right'], ['bl', 'BL', 'Back left'], ['br', 'BR', 'Back right']];
 const PAGE = 20;
@@ -175,8 +175,8 @@ async function drawEntry(body, root) {
   body.innerHTML = `<div class="fcard">
     <h3>Enter tyre pressures</h3>
     <p class="lede">Check cold, before the morning run, every 15 days. The colour beside each figure is live
-      against that vehicle's recommended pressure. A spare covering a route should have that route chosen.</p>
-    <div class="frow" style="max-width:640px">${auditFields('ty', { dateLabel: 'Date checked' })}
+      against that vehicle's recommended pressure. A spare covering a route should have that route chosen.${isEditor() ? '' : ' Readings are entered for today; a missed check from an earlier date is for the authorised editor.'}</p>
+    <div class="frow" style="max-width:640px">${auditFields('ty', { dateLabel: 'Date checked', todayOnly: true })}
       <div class="field"><label for="tyFind">Find a bus</label><input id="tyFind" placeholder="Bus number, e.g. 12"/></div></div>
     <div class="tscroll"><table><thead><tr><th>Vehicle</th><th>Route covered</th>
       ${POS.map(([, l, t]) => `<th class="num" title="${t}">${l}</th>`).join('')}<th>Last check</th><th>Now</th></tr></thead>
@@ -205,6 +205,7 @@ async function drawEntry(body, root) {
     const rows = filled(); if (!rows.length) { toast('Fill in at least one bus', 'bad'); return; }
     const a = readAudit('ty');
     if (a.recorded_on > today()) { toast('The date cannot be in the future', 'bad'); return; }
+    if (!mayEnterDate(a.recorded_on)) { toast(OLD_ENTRY, 'bad'); return; }
     const recs = [];
     for (const tr of rows) {
       const vid = +tr.dataset.v, v = vehicleById(vid), route = $('tyr' + vid).value;

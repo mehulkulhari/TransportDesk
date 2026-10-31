@@ -41,12 +41,14 @@ entry is removed with `active = false` and stays in the record.
 
 ### Correcting an entry
 
-Tyre, daily km and fuel entries can be corrected, under one rule enforced in the
-database (`fleet_guard_log_edit`, migration `20261031000000_fleet_record_edits.sql`):
+Tyre, daily km and fuel entries follow one rule, enforced in the database
+(`fleet_guard_new_entry` and `fleet_guard_log_edit`, migrations `20261031000000_*` and
+`20261031000100_*`):
 
-- **Anyone signed in** can correct or remove an entry on the day it was typed in.
-  That covers today's reading, and a late entry typed today for an earlier date.
-- **The authorised editor** can correct or remove any entry of any date. The editor
+- **Anyone signed in** can enter a reading for today, and correct or remove an entry
+  dated today. Nothing else: not an earlier date, and not re-dating today's entry.
+- **The authorised editor** fills in missed entries for earlier dates, and can correct
+  or remove any entry of any date. The editor
   is a login id in `fleet_record_editors`, a table closed to the API and deliberately
   not seeded from this repository — see `docs/OPERATIONS.md`.
 - **Anyone signed in** can still add a *missing* reason to an older entry, because an
@@ -58,8 +60,8 @@ to `fleet_edit_log` with old and new values and the login that made it; the scre
 "edited by … · was …" under the entry. `entered_at` and `entered_by_email` cannot be
 changed by an edit. Correcting an odometer reading also changes the next day's km, since
 `odometer_daily` works km out from the pair, and the screen warns if the new figure
-passes the next reading. Editing does not change an entry's date or vehicle: to move
-one, remove it and enter it again.
+passes the next reading. The Edit form does not change an entry's date or vehicle: to
+move one, remove it and enter it again.
 
 ## 3. Screens and the rules behind them
 
@@ -182,7 +184,7 @@ python -m http.server 8012
 
 Open `http://localhost:8012/tests/fleet/` (or start **Fleet tests** from
 `.claude/launch.json`). It renders all twelve tabs and exercises the save paths and
-validation rules, plus the Overview's fleet week and correcting entries — 128 checks. Run it after any change to a fleet screen.
+validation rules, plus the Overview's fleet week and correcting entries — 137 checks. Run it after any change to a fleet screen.
 
 It tests the screens, not the SQL. The views and the correction rule were checked
 separately inside a transaction that rolled itself back, the rule by acting as the

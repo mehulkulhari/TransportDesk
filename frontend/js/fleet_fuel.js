@@ -7,7 +7,7 @@
 
 import { vehicles, vehicleById, vLabel, vehicleSelect, routeSelect, bindVehicleRoute, auditFields,
          readAudit, auditLine, fmtD, chip, num, val, busy, today, n0, deactivate, downloadCsv,
-         canEdit, lastEdits, editLine } from './fleetkit.js';
+         canEdit, isEditor, mayEnterDate, OLD_ENTRY, lastEdits, editLine } from './fleetkit.js';
 
 const TOL = 0.15;
 const PAGE = 15;
@@ -19,10 +19,10 @@ export async function renderFuel(el) {
   el.innerHTML = `<div class="fsplit">
     <div class="fcard"><h3>Record a fill</h3>
       <p class="lede">Mileage needs the odometer reading at each fill. If this fill's mileage is far from the bus's
-        normal, you will be asked why.</p>
+        normal, you will be asked why.${isEditor() ? '' : ' Fills are entered for today; a fill from an earlier date is for the authorised editor.'}</p>
       <div class="field"><label for="fuV">Vehicle</label>${vehicleSelect('fuV', sel)}</div>
       <div class="field"><label for="fuR">Route covered</label>${routeSelect('fuR', vehicleById(sel)?.bus_id)}</div>
-      <div class="frow">${auditFields('fu', { dateLabel: 'Fill date' })}</div>
+      <div class="frow">${auditFields('fu', { dateLabel: 'Fill date', todayOnly: true })}</div>
       <div class="frow">
         <div class="field"><label for="fuL">Litres</label><input id="fuL" type="number" min="0" step="0.01"/></div>
         <div class="field"><label for="fuP">Price per litre (₹)</label><input id="fuP" type="number" min="0" step="0.01"/></div>
@@ -139,6 +139,7 @@ async function save(el) {
   if (!l || l <= 0) { toast('Enter the litres filled', 'bad'); $('fuL').focus(); return; }
   if (v.is_spare && !route) { toast('Pick the route this spare covered', 'bad'); $('fuR').focus(); return; }
   if (a.recorded_on > today()) { toast('The date cannot be in the future', 'bad'); return; }
+  if (!mayEnterDate(a.recorded_on)) { toast(OLD_ENTRY, 'bad'); return; }
   if (!$('fuWhyF').hidden && !val('fuWhy')) { toast('Give the reason mileage is off normal', 'bad'); $('fuWhy').focus(); return; }
   if (p && c && Math.abs(l * p - c) / c > 0.02 &&
       !confirm(`Litres × price is ₹${(l * p).toFixed(0)} but the cost entered is ₹${c.toFixed(0)}. The cost from the bill will be used. Continue?`)) return;

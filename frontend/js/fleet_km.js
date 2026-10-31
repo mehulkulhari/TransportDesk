@@ -4,7 +4,7 @@
 // stops alerting.
 
 import { vehicles, vehicleById, vLabel, auditFields, readAudit, auditLine, fmtD, chip,
-         routeSelect, busy, today, n0, downloadCsv, canEdit, canEditAll, lastEdits, editLine } from './fleetkit.js';
+         routeSelect, busy, today, n0, downloadCsv, canEdit, canEditAll, mayEnterDate, OLD_ENTRY, lastEdits, editLine } from './fleetkit.js';
 
 const NEED_DAYS = 5;          // normal days before a baseline is trusted
 const OVER = r => r.km > r.avg * 1.15 && r.km - r.avg > 5;   // mirrors odometer_daily.above_average
@@ -21,8 +21,8 @@ export async function renderKm(el) {
         appear as you type. Once a bus has ${NEED_DAYS} normal days on record, a day well above its normal
         (more than 15%) or well below it (under 60%) opens a <b>reason</b> box — that day keeps alerting until a reason is given.</p>
       <p class="lede">${await canEditAll()
-        ? 'You are the authorised editor: pick any date and use <b>Edit</b> to correct its readings.'
-        : 'A reading can be corrected with <b>Edit</b> on the day it was entered. After that, only the authorised editor can change it.'}</p>
+        ? 'You are the authorised editor: pick any date to fill in its missing readings, or use <b>Edit</b> to correct one.'
+        : 'Readings are entered for today, and can be corrected with <b>Edit</b> the same day. Filling in a missed day, or changing an older reading, is for the authorised editor.'}</p>
       <div class="frow" style="max-width:640px">${auditFields('km', { dateLabel: 'Reading date' })}
         <div class="field"><label for="kmFind">Find a bus</label><input id="kmFind" placeholder="Bus number, e.g. 12"/></div></div>
       <div id="kmSheet"><div class="hint">Loading…</div></div>
@@ -54,6 +54,7 @@ async function sheet(vs) {
     CTX[v.id] = { prev, mine, avg: normal.length ? normal.reduce((s, r) => s + +r.km_run, 0) / normal.length : null, n: normal.length };
   });
   const edits = await lastEdits('odometer_readings', Object.values(CTX).filter(c => c.mine).map(c => c.mine.id));
+  const open = mayEnterDate(on);
   $('kmSheet').innerHTML = `<div class="tscroll"><table><thead><tr><th>Vehicle</th><th>Route covered</th>
       <th class="num">Last reading</th><th class="num">Today's reading</th><th class="num">Km run</th><th class="num">Normal day</th><th>Reason</th><th></th></tr></thead>
     <tbody>${vs.map(v => { const c = CTX[v.id];
@@ -64,6 +65,8 @@ async function sheet(vs) {
         <td class="num"><b>${n0(c.mine.reading_km)}</b><span class="audit">entered${c.mine.provided_by ? ' · ' + esc(c.mine.provided_by) : ''}</span>${editLine(edits[c.mine.id], 'reading_km')}</td>
         <td class="num">${c.mine.km_run ?? '—'}</td><td class="num">${avg}</td><td>${c.mine.reason ? esc(c.mine.reason) : ''}</td>
         <td>${canEdit(c.mine) ? `<button class="b-ghost linkbtn kmEdit">Edit</button>` : ''}</td></tr>`;
+      if (!open) return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}" class="done">
+        <td>${esc(vLabel(v))}</td><td>—</td><td class="num">${last}</td><td class="num muted">not entered</td><td></td><td class="num">${avg}</td><td></td><td></td></tr>`;
       return `<tr data-v="${v.id}" data-q="${esc(vLabel(v)).toLowerCase()}">
         <td>${esc(vLabel(v))}</td><td>${routeSelect('kmr' + v.id, v.bus_id, { blank: v.is_spare ? 'Pick route…' : 'No route' })}</td>
         <td class="num">${last}</td>
@@ -72,7 +75,9 @@ async function sheet(vs) {
         <td><input class="kmWhy" placeholder="Why so different from normal?" hidden/></td><td></td></tr>`; }).join('')}</tbody></table></div>`;
   $('kmSheet').querySelectorAll('.kmIn').forEach(i => i.addEventListener('input', () => live(i.closest('tr'))));
   $('kmSheet').querySelectorAll('.kmEdit').forEach(b => b.onclick = () => editRow(b.closest('tr'), vs));
+  $('kmSave').hidden = !open;
   count();
+  if (!open) $('kmCount').textContent = OLD_ENTRY + '.';
 }
 
 /** Turn a saved row back into inputs. It keeps .done, so "Save readings" skips it. */
@@ -139,6 +144,7 @@ function count() {
 async function save(el) {
   const a = readAudit('km');
   if (a.recorded_on > today()) { toast('The date cannot be in the future', 'bad'); return; }
+  if (!mayEnterDate(a.recorded_on)) { toast(OLD_ENTRY, 'bad'); return; }
   const recs = [];
   for (const tr of document.querySelectorAll('#kmSheet tbody tr:not(.done)')) {
     const inp = tr.querySelector('.kmIn'); if (!inp || inp.value === '') continue;
